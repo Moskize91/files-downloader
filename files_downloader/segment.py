@@ -40,6 +40,11 @@ class Segment:
   def completed_length(self) -> int:
     return self._completed_length
 
+  @property
+  def is_completed(self) -> bool:
+    with self._lock:
+      return self._completed_length >= self._length
+
   def lock(self, delta_length: int) -> int:
     with self._lock:
       if self._interrupted:
@@ -54,6 +59,11 @@ class Segment:
       if next_completed_length > self._locked_length:
         raise ValueError("cannot submit more than locked length")
       self._completed_length = next_completed_length
+
+  def complete(self) -> None:
+    with self._lock:
+      self._locked_length = self._length
+      self._completed_length = self._length
 
   def interrupt(self) -> None:
     with self._lock:
@@ -96,6 +106,7 @@ class Serial:
           offset=0,
           length=length,
           completed_length=0,
+          send_back=self._receive_segment,
         ),
       ))
     else:
@@ -125,6 +136,11 @@ class Serial:
   def length(self) -> int:
     return self._length
 
+  @property
+  def is_completed(self) -> bool:
+    with self._nodes_lock:
+      return all(node.done for node in self._nodes)
+
   def snapshot(self) -> list[SegmentDescription]:
     with self._nodes_lock:
       descriptions = [
@@ -132,7 +148,6 @@ class Serial:
           offset=node.segment.offset,
           length=node.segment.length,
           completed_length=node.segment.completed_length,
-          send_back=self._receive_segment,
         )
         for node in self._nodes
       ]

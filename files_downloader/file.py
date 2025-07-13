@@ -36,6 +36,7 @@ class File:
 
     self._stopping_lock: Lock = Lock()
     self._did_stop: bool = False
+    self._range_lock: Lock = Lock()
     self._range_downloader: RangeDownloader | None = None
     try:
       self._range_downloader = RangeDownloader(
@@ -56,29 +57,36 @@ class File:
     if self._did_stop:
       return None
 
-    range_downloader = self._range_downloader
-    if range_downloader is None:
-      raise NotImplementedError("TODO: 实现独自下载文件逻辑")
+    with self._range_lock:
+      range_downloader = self._range_downloader
+      if range_downloader is not None:
+        segment = range_downloader.serial.pop_segment()
+        if not segment:
+          return None
+        return lambda: self._download_segment(
+          range_downloader=range_downloader,
+          segment=segment,
+        )
 
-    segment = range_downloader.serial.pop_segment()
-    if not segment:
-      return None
-    return lambda: self._download_segment(
-      range_downloader=range_downloader,
-      segment=segment,
-    )
+    return self._download_file
 
-  def _download_segment(self, range_downloader: RangeDownloader, segment: Segment):
+  def _download_segment(self, range_downloader: RangeDownloader, segment: Segment) -> None:
     try:
       with self._stopping_lock:
         if self._did_stop:
           return
       try:
         range_downloader.download_segment(segment)
+
       except RangeNotSupportedError:
-        self._range_downloader = None # TODO: 不够严谨
+        with self._range_lock:
+          self._range_downloader = None
+          range_downloader.serial.dispose()
     finally:
       segment.dispose()
+
+  def _download_file(self) -> None:
+    raise NotImplementedError("TODO: 实现独自下载文件逻辑")
 
   def try_complete(self) -> Path | None:
     if self._range_downloader is None:

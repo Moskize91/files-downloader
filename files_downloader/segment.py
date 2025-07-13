@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Callable, Iterable
 from threading import Lock, Event
-from .error import InterruptionError
+from .common import InterruptionError
 
 
 @dataclass

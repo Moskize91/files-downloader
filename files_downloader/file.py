@@ -22,7 +22,6 @@ class File:
         cookies: MutableMapping[str, str] | None = None,
       ) -> None:
 
-    assert "*" not in file_path.name, "file name cannot contain \"*\" character"
     assert not file_path.exists(), "file already exists"
 
     self._url: str = url

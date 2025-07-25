@@ -1,3 +1,4 @@
+import glob
 import requests
 
 from pathlib import Path
@@ -106,7 +107,9 @@ class RangeDownloader:
 
   def _search_offsets(self, length: int):
     wanna_tail = f"{self._file_path.suffix[1:]}{DOWNLOADING_SUFFIX}"
-    for matched_path in self._file_path.parent.glob(f"{self._file_path.stem}*"):
+    file_stem = glob.escape(self._file_path.stem) # maybe include "*" signs
+
+    for matched_path in self._file_path.parent.glob(f"{file_stem}*"):
       matched_tail = matched_path.name[len(self._file_path.stem):]
       if matched_tail == DOWNLOADING_SUFFIX:
         yield 0

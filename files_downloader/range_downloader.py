@@ -7,7 +7,7 @@ from threading import Lock, Event
 
 from .segment import Serial, Segment, SegmentDescription
 from .retry import Retry
-from .common import chunk_name, DOWNLOADING_SUFFIX, CanRetryError
+from .common import chunk_name, DOWNLOADING_SUFFIX, CAN_RETRY_STATUS_CODES, CanRetryError
 from .utils import clean_path
 
 
@@ -195,7 +195,7 @@ class RangeDownloader:
       cookies=self._cookies,
       timeout=self._timeout,
     )
-    if resp.status_code in (408, 429, 502, 503, 504):
+    if resp.status_code in CAN_RETRY_STATUS_CODES:
       raise CanRetryError(f"HTTP {resp.status_code} - {resp.reason}")
     resp.raise_for_status()
 

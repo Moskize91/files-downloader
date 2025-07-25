@@ -2,6 +2,7 @@ from pathlib import Path
 
 
 DOWNLOADING_SUFFIX = ".downloading"
+CAN_RETRY_STATUS_CODES = (408, 429, 502, 503, 504)
 
 class InterruptionError(Exception):
   def __init__(self) -> None:

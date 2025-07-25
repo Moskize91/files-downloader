@@ -1,6 +1,7 @@
 from typing import Callable
 from time import sleep
 from requests import exceptions, Response
+from .common import CAN_RETRY_STATUS_CODES
 
 
 class Retry:
@@ -20,7 +21,7 @@ class Retry:
         last_response = request()
         if last_response.ok:
           return last_response
-        if last_response.status_code not in (408, 429, 502, 503, 504):
+        if last_response.status_code not in CAN_RETRY_STATUS_CODES:
           break
       except (
         exceptions.ConnectionError,

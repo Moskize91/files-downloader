@@ -156,11 +156,10 @@ class Serial:
     return descriptions
 
   def dispose(self) -> None:
-    if self._did_dispose:
-      return
-
     wait_count: int = 0
     with self._nodes_lock:
+      if self._did_dispose:
+        return
       for node in self._nodes:
         if node.taken:
           node.segment.interrupt()
@@ -200,8 +199,6 @@ class Serial:
           return segment
 
         with segment._lock:
-          if node.taken:
-            continue
           cutted_segment = self._try_to_cut_segment(segment)
           if cutted_segment:
             return cutted_segment

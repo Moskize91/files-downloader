@@ -132,50 +132,53 @@ class RangeDownloader:
 
   def download_segment(self, segment: Segment) -> None:
     chunk_path = self._file_path.parent / chunk_name(self._file_path, segment.offset)
-    chunk_size = chunk_path.stat().st_size
+    chunk_size = 0
+    if chunk_path.exists():
+      chunk_size = chunk_path.stat().st_size
 
     if chunk_size >= segment.length:
       trim_size = chunk_size - segment.length
       if trim_size > 0:
         self._trim_file_tail(chunk_path, trim_size)
       segment.complete()
-    else:
-      def on_know_support_range() -> None:
-        with self._padding_lock:
-          self._did_support_range = True
-        self._support_range_event.set()
+      return
 
-      # 服务器可能变卦，在 meta 中声明支持 Range，但真正 fetch 时又不支持了
-      # 只有发起一次真正的 GET 请求，然后从 Response Head 中读取信息才能知道到底值不支持
-      # 因此先让第一个 Request 发起请求，并同时阻塞其他任务，直到第一个请求的 HEAD 部分返回再进行下一步操作
-      know_support_range: Callable[[], None] | None = None
-      to_wait_event: Event | None = None
-      is_first_fetch: bool = False
-
+    def on_know_support_range() -> None:
       with self._padding_lock:
-        if self._is_first_fetch:
-          know_support_range = on_know_support_range
-          is_first_fetch = self._is_first_fetch
-          self._is_first_fetch = False
-        elif not self._support_range_event.is_set():
-          to_wait_event = self._support_range_event
+        self._did_support_range = True
+      self._support_range_event.set()
 
-      if to_wait_event:
-        to_wait_event.wait()
-        with self._padding_lock:
-          if not self._did_support_range:
-            raise ValueError("Range not supported by server")
+    # 服务器可能变卦，在 meta 中声明支持 Range，但真正 fetch 时又不支持了
+    # 只有发起一次真正的 GET 请求，然后从 Response Head 中读取信息才能知道到底值不支持
+    # 因此先让第一个 Request 发起请求，并同时阻塞其他任务，直到第一个请求的 HEAD 部分返回再进行下一步操作
+    know_support_range: Callable[[], None] | None = None
+    to_wait_event: Event | None = None
+    is_first_fetch: bool = False
 
-      try:
-        self._download_segment_into_file(
-          chunk_path=chunk_path,
-          segment=segment,
-          know_support_range=know_support_range,
-        )
-      except RangeNotSupportedError as err:
-        if is_first_fetch:
-          self._support_range_event.set()
-        raise err
+    with self._padding_lock:
+      if self._is_first_fetch:
+        know_support_range = on_know_support_range
+        is_first_fetch = self._is_first_fetch
+        self._is_first_fetch = False
+      elif not self._support_range_event.is_set():
+        to_wait_event = self._support_range_event
+
+    if to_wait_event:
+      to_wait_event.wait()
+      with self._padding_lock:
+        if not self._did_support_range:
+          raise ValueError("Range not supported by server")
+
+    try:
+      self._download_segment_into_file(
+        chunk_path=chunk_path,
+        segment=segment,
+        know_support_range=know_support_range,
+      )
+    except RangeNotSupportedError as err:
+      if is_first_fetch:
+        self._support_range_event.set()
+      raise err
 
   def _trim_file_tail(self, file_path: Path, bytes: int) -> None:
     with open(file_path, "rb+") as file:
@@ -197,7 +200,12 @@ class RangeDownloader:
     )
     if resp.status_code in CAN_RETRY_STATUS_CODES:
       raise CanRetryError(f"HTTP {resp.status_code} - {resp.reason}")
+    if resp.status_code == 416:
+      raise RangeNotSupportedError()
     resp.raise_for_status()
+
+    if resp.status_code != 206:
+      raise RangeNotSupportedError()
 
     content_range = resp.headers.get("Content-Range")
     content_length = resp.headers.get("Content-Length")
@@ -210,7 +218,7 @@ class RangeDownloader:
     if know_support_range:
       know_support_range()
 
-    with open(chunk_path, "wb") as file:
+    with open(chunk_path, "ab") as file:
       for chunk in resp.iter_content(self._once_fetch_size):
         chunk_size = len(chunk)
         writable_size = segment.lock(chunk_size)

@@ -1,4 +1,5 @@
 import requests
+import shutil
 
 from pathlib import Path
 from enum import Enum
@@ -14,7 +15,7 @@ from .utils import clean_path
 
 class _SingletonPhase(Enum):
   NOT_STARTED = 0
-  DOWNLOADING = 1
+  POPPED_TASK = 1
   COMPLETED = 2
   FAILED = 3
 
@@ -81,15 +82,17 @@ class File:
     download_file = self._file_path.parent / chunk_name(self._file_path, 0)
     with self._singleton_lock:
       phase = self._singleton_phase
-      if phase == _SingletonPhase.DOWNLOADING or \
+      if phase == _SingletonPhase.POPPED_TASK or \
          phase == _SingletonPhase.COMPLETED:
         return None
       if phase == _SingletonPhase.FAILED:
         download_file.unlink(missing_ok=True)
+      self._singleton_phase = _SingletonPhase.POPPED_TASK
 
     return lambda: self._download_file(download_file)
 
   def _download_segment(self, range_downloader: RangeDownloader, segment: Segment) -> None:
+    did_call_dispose = False
     try:
       if self._did_stop:
         return
@@ -98,16 +101,16 @@ class File:
 
       except RangeNotSupportedError:
         with self._range_lock:
+          segment.dispose() # release self first
+          did_call_dispose = True
           self._range_downloader = None
           range_downloader.serial.dispose()
     finally:
-      segment.dispose()
+      if not did_call_dispose:
+        segment.dispose()
 
   def _download_file(self, file_path: Path) -> None:
     try:
-      with self._singleton_lock:
-        self._singleton_phase = _SingletonPhase.DOWNLOADING
-
       resp = requests.Session().get(
         stream=True,
         url=self._url,
@@ -155,22 +158,27 @@ class File:
       chunk_paths.append(file_path)
 
     clean_path(self._file_path)
-    try:
-      with open(self._file_path, "wb") as output:
-        for chunk_path in chunk_paths:
-          with open(chunk_path, "rb") as input:
-            while True:
-              chunk = input.read(self._once_fetch_size)
-              if not chunk:
-                break
-              output.write(chunk)
 
-    except Exception as err:
-      self._file_path.unlink(missing_ok=True)
-      raise err
+    if len(chunk_paths) == 1:
+      source_path = chunk_paths[0]
+      shutil.move(source_path, self._file_path)
+    else:
+      try:
+        with open(self._file_path, "wb") as output:
+          for chunk_path in chunk_paths:
+            with open(chunk_path, "rb") as input:
+              while True:
+                chunk = input.read(self._once_fetch_size)
+                if not chunk:
+                  break
+                output.write(chunk)
 
-    for chunk_path in chunk_paths:
-      chunk_path.unlink(missing_ok=True)
+      except Exception as err:
+        self._file_path.unlink(missing_ok=True)
+        raise err
+
+      for chunk_path in chunk_paths:
+        chunk_path.unlink(missing_ok=True)
     return self._file_path
 
   def stop(self) -> None:

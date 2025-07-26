@@ -12,7 +12,7 @@ from threading import Thread
 from tests.start_flask import PORT
 from files_downloader.retry import Retry
 from files_downloader.file import File
-from files_downloader.errors import CanRetryError, RangeNotSupportedError
+from files_downloader.errors import InterruptionError, CanRetryError, RangeNotSupportedError
 
 
 _TEMP_PATH = Path(__file__).parent / "temp"
@@ -172,6 +172,55 @@ class TestDownload(unittest.TestCase):
       _sha256(download_file),
       _sha256(raw_file),
     )
+
+  def test_dispose_download(self):
+    temp_path = self._temp_path("test_dispose_download")
+    download_file = temp_path / "mirai.jpg"
+    file = self._create_file(
+      path="/images/mirai.jpg?range=true",
+      download_file=download_file,
+    )
+    self.assertIsNotNone(file._range_downloader)
+
+    group_size = 3
+    to_cancel_threads: list[Thread] = []
+    errors: list[Exception | None] = [None] * group_size
+
+    def run_task(task: Callable[[], None], index: int) -> None:
+      try:
+        task()
+      except Exception as error:
+        errors[index] = error
+
+    for i in range(group_size):
+      task = file.pop_downloading_task()
+      assert task is not None, "Failed to pop task"
+      to_cancel_threads.append(Thread(target=run_task, args=(task, i)))
+
+    for _ in range(group_size):
+      task = file.pop_downloading_task()
+      assert task is not None, "Failed to pop task"
+      task()
+
+    for thread in to_cancel_threads:
+      thread.start()
+
+    file.dispose()
+
+    for thread in to_cancel_threads:
+      thread.join()
+
+    for error in errors:
+      self.assertIsInstance(error, InterruptionError)
+
+    self.assertIsNone(file.pop_downloading_task())
+
+    chunk_file_count: int = 0
+    for file in temp_path.iterdir():
+      if file.is_file() and file.name.endswith(".downloading"):
+        chunk_file_count += 1
+
+    self.assertEqual(chunk_file_count, group_size * 2)
 
   def _temp_path(self, name: str) -> Path:
     path = _TEMP_PATH / name

@@ -45,7 +45,7 @@ class File:
     self._headers: Mapping[str, str | bytes | None] | None = headers
     self._cookies: MutableMapping[str, str] | None = cookies
 
-    self._did_stop: bool = False
+    self._did_dispose: bool = False
     self._singleton_lock: Lock = Lock()
     self._singleton_phase: _SingletonPhase = _SingletonPhase.NOT_STARTED
     self._range_lock: Lock = Lock()
@@ -67,7 +67,7 @@ class File:
       pass
 
   def pop_downloading_task(self) -> Callable[[], None] | None:
-    if self._did_stop:
+    if self._did_dispose:
       return None
 
     with self._range_lock:
@@ -95,7 +95,7 @@ class File:
 
   def _download_segment(self, range_downloader: RangeDownloader, segment: Segment) -> None:
     try:
-      if not self._did_stop:
+      if not self._did_dispose:
         range_downloader.download_segment(segment)
     except RangeNotSupportedError as error:
       if not error.is_canceled_by:
@@ -105,7 +105,6 @@ class File:
       raise error
     finally:
       segment.dispose()
-
 
   def _download_file(self, file_path: Path) -> None:
     try:
@@ -125,7 +124,7 @@ class File:
           for chunk in resp.iter_content(self._once_fetch_size):
             if len(chunk) == 0:
               break
-            if self._did_stop:
+            if self._did_dispose:
               with self._singleton_lock:
                 self._singleton_phase = _SingletonPhase.FAILED
               return
@@ -188,10 +187,10 @@ class File:
         chunk_path.unlink(missing_ok=True)
     return self._file_path
 
-  def stop(self) -> None:
-    if self._did_stop:
+  def dispose(self) -> None:
+    if self._did_dispose:
       return
-    self._did_stop = True
+    self._did_dispose = True
 
     with self._range_lock:
       range_downloader = self._range_downloader

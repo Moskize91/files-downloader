@@ -7,8 +7,10 @@ import unittest
 
 from pathlib import Path
 from typing import Callable
+from threading import Thread
 
 from tests.start_flask import PORT
+from files_downloader.errors import RangeNotSupportedError
 from files_downloader.retry import Retry
 from files_downloader.file import File
 
@@ -93,21 +95,48 @@ class TestDownload(unittest.TestCase):
     raw_file = Path(__file__).parent / "mirai.jpg"
     download_file = temp_path / "mirai.jpg"
     file = self._create_file(
-      path="/images/mirai.jpg?range=false&reject_first=false",
+      path="/images/mirai.jpg",
       download_file=download_file,
     )
     self.assertIsNotNone(file._range_downloader)
 
     segments_count = 5
-    tasks: list[Callable[[], None]] = []
+    threads: list[Thread] = []
+    errors: list[Exception | None] = [None] * segments_count
 
     for i in range(segments_count):
-      run_download_task = file.pop_downloading_task()
-      assert run_download_task is not None, f"Failed to pop task {i + 1}/{segments_count}"
-      tasks.append(run_download_task)
+      def invoker(index: int):
+        task = file.pop_downloading_task()
+        assert task is not None, "Failed to pop task"
+        try:
+          task()
+        except Exception as error:
+          errors[index] = error
 
-    for i in _shuffle_indexes(segments_count, seed=4399):
-      tasks[i]()
+      thread = Thread(target=invoker, args=(i,))
+      thread.start()
+      threads.append(thread)
+
+    for thread in threads:
+      thread.join()
+
+    canceled_count: int = 0
+    for error in errors:
+      assert isinstance(error, RangeNotSupportedError), "Expected RangeNotSupportedError"
+      if error.is_canceled_by:
+        canceled_count += 1
+    self.assertEqual(canceled_count, segments_count - 1)
+
+    download_task = file.pop_downloading_task()
+    assert download_task is not None, "Failed to pop final task"
+    self.assertIsNone(file.pop_downloading_task())
+
+    download_task()
+    self.assertEqual(file.try_complete(), download_file)
+    self.assertEqual(
+      _sha256(download_file),
+      _sha256(raw_file),
+    )
 
   def _temp_path(self, name: str) -> Path:
     path = _TEMP_PATH / name

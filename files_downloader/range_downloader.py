@@ -7,12 +7,10 @@ from threading import Lock, Event
 
 from .segment import Serial, Segment, SegmentDescription
 from .retry import Retry
-from .common import chunk_name, DOWNLOADING_SUFFIX, CAN_RETRY_STATUS_CODES, CanRetryError
+from .common import chunk_name, DOWNLOADING_SUFFIX, CAN_RETRY_STATUS_CODES
+from .errors import CanRetryError, RangeNotSupportedError
 from .utils import clean_path
 
-
-class RangeNotSupportedError(Exception):
-  pass
 
 # thread safe
 class RangeDownloader:
@@ -46,7 +44,7 @@ class RangeDownloader:
     if content_length is None:
       raise ValueError("Content-Length header is missing in response")
     if not range_useable:
-      raise RangeNotSupportedError()
+      raise RangeNotSupportedError("Server does not support Range requests")
 
     self._serial: Serial = self._create_serial(
       content_length=content_length,
@@ -167,7 +165,10 @@ class RangeDownloader:
       to_wait_event.wait()
       with self._padding_lock:
         if not self._did_support_range:
-          raise ValueError("Range not supported by server")
+          raise RangeNotSupportedError(
+            message="Task is canceled because server rejects Range request",
+            is_canceled_by=True,
+          )
 
     try:
       self._download_segment_into_file(
@@ -201,19 +202,19 @@ class RangeDownloader:
     if resp.status_code in CAN_RETRY_STATUS_CODES:
       raise CanRetryError(f"HTTP {resp.status_code} - {resp.reason}")
     if resp.status_code == 416:
-      raise RangeNotSupportedError()
+      raise RangeNotSupportedError("Server rejects Range request")
     resp.raise_for_status()
 
     if resp.status_code != 206:
-      raise RangeNotSupportedError()
+      raise RangeNotSupportedError(f"Server rejects Range request with status code {resp.status_code}")
 
     content_range = resp.headers.get("Content-Range")
     content_length = resp.headers.get("Content-Length")
 
     if content_range != f"bytes {segment.offset}-{segment_end}/{segment.length}":
-      raise RangeNotSupportedError()
+      raise RangeNotSupportedError(f"Unexpected Content-Range: {content_range}")
     if content_length != f"{segment.length}":
-      raise RangeNotSupportedError()
+      raise RangeNotSupportedError(f"Unexpected Content-Length: {content_length}")
 
     if know_support_range:
       know_support_range()

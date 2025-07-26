@@ -6,10 +6,11 @@ from enum import Enum
 from typing import Callable, Mapping, MutableMapping
 from threading import Lock
 
-from .common import chunk_name, CAN_RETRY_STATUS_CODES, CanRetryError
+from .common import chunk_name, CAN_RETRY_STATUS_CODES
+from .errors import CanRetryError, RangeNotSupportedError
 from .retry import Retry
 from .segment import Segment
-from .range_downloader import RangeDownloader, RangeNotSupportedError
+from .range_downloader import RangeDownloader
 from .utils import clean_path
 
 
@@ -92,22 +93,24 @@ class File:
     return lambda: self._download_file(download_file)
 
   def _download_segment(self, range_downloader: RangeDownloader, segment: Segment) -> None:
-    did_call_dispose = False
-    try:
-      if self._did_stop:
-        return
+    if not self._did_stop:
       try:
         range_downloader.download_segment(segment)
 
-      except RangeNotSupportedError:
-        with self._range_lock:
-          segment.dispose() # release self first
-          did_call_dispose = True
-          self._range_downloader = None
-          range_downloader.serial.dispose()
-    finally:
-      if not did_call_dispose:
-        segment.dispose()
+      except Exception as error:
+        not_call_dispose = True
+        if isinstance(error, RangeNotSupportedError) and not error.is_canceled_by:
+          with self._range_lock:
+            segment.dispose() # release self first
+            self._range_downloader = None
+            range_downloader.serial.dispose()
+            not_call_dispose = False
+
+        if not_call_dispose:
+          segment.dispose()
+        raise error
+
+    segment.dispose()
 
   def _download_file(self, file_path: Path) -> None:
     try:

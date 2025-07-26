@@ -20,7 +20,7 @@ class _SingletonPhase(Enum):
   COMPLETED = 2
   FAILED = 3
 
-class File:
+class FileDownloader:
   def __init__(
         self,
         url: str,

@@ -10,9 +10,13 @@ from typing import Callable
 from threading import Thread
 
 from tests.start_flask import PORT
-from files_downloader.retry import Retry
-from files_downloader.file import File
-from files_downloader.errors import InterruptionError, CanRetryError, RangeNotSupportedError
+from files_downloader.file import (
+  Retry,
+  FileDownloader,
+  InterruptionError,
+  CanRetryError,
+  RangeNotSupportedError,
+)
 
 
 _TEMP_PATH = Path(__file__).parent / "temp"
@@ -227,8 +231,8 @@ class TestDownload(unittest.TestCase):
     path.mkdir(parents=True, exist_ok=True)
     return path
 
-  def _create_file(self, path: str, download_file: Path) -> File:
-    return File(
+  def _create_file(self, path: str, download_file: Path) -> FileDownloader:
+    return FileDownloader(
       url=f"http://localhost:{PORT}{path}",
       file_path=download_file,
       min_segment_length=1024,

@@ -7,7 +7,7 @@ from threading import Lock, Event
 
 from .segment import Serial, Segment, SegmentDescription
 from .retry import Retry
-from .common import chunk_name, DOWNLOADING_SUFFIX, CAN_RETRY_STATUS_CODES
+from .common import chunk_name, is_exception_can_retry, DOWNLOADING_SUFFIX, CAN_RETRY_STATUS_CODES
 from .errors import CanRetryError, RangeNotSupportedError
 from .utils import clean_path
 
@@ -189,9 +189,13 @@ class RangeDownloader:
         file.truncate(size - bytes)
 
   def _download_segment_into_file(self, chunk_path: Path, segment: Segment, know_support_range: Callable[[], None] | None) -> None:
-    segment_end = segment.offset + segment.length - 1
+    download_start = segment.offset + segment.completed_length
+    download_end = segment.offset + segment.length - 1
+    download_length = download_end - download_start + 1
+
     headers: Mapping[str, str | bytes | None] = {**self._headers} if self._headers else {}
-    headers["Range"] = f"{segment.offset}-{segment_end}"
+    headers["Range"] = f"{download_start}-{download_end}"
+
     resp = requests.Session().get(
       stream=True,
       url=self._url,
@@ -211,25 +215,32 @@ class RangeDownloader:
     content_range = resp.headers.get("Content-Range")
     content_length = resp.headers.get("Content-Length")
 
-    if content_range != f"bytes {segment.offset}-{segment_end}/{segment.length}":
+    if content_range != f"bytes {download_start}-{download_end}/{download_length}":
       raise RangeNotSupportedError(f"Unexpected Content-Range: {content_range}")
-    if content_length != f"{segment.length}":
+    if content_length != f"{download_length}":
       raise RangeNotSupportedError(f"Unexpected Content-Length: {content_length}")
 
     if know_support_range:
       know_support_range()
 
     with open(chunk_path, "ab") as file:
-      for chunk in resp.iter_content(self._once_fetch_size):
-        chunk_size = len(chunk)
-        writable_size = segment.lock(chunk_size)
-        if writable_size == 0:
-          break
-        if writable_size == chunk_size:
-          file.write(chunk)
+      try:
+        for chunk in resp.iter_content(self._once_fetch_size):
+          chunk_size = len(chunk)
+          writable_size = segment.lock(chunk_size)
+          if writable_size == 0:
+            break
+          if writable_size == chunk_size:
+            file.write(chunk)
+          else:
+            file.write(chunk[:writable_size])
+          segment.submit(writable_size)
+
+      except Exception as error:
+        if is_exception_can_retry(error):
+          raise CanRetryError("Download one segment of the file failed") from error
         else:
-          file.write(chunk[:writable_size])
-        segment.submit(writable_size)
+          raise error
 
     if not segment.is_completed:
       raise CanRetryError("Connection closed before completing segment")

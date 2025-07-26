@@ -34,6 +34,7 @@
     "epub",
     "fitz",
     "frombytes",
+    "jsonify",
     "kwoa",
     "langchain",
     "layoutreader",

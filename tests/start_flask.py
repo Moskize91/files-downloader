@@ -1,11 +1,15 @@
 import traceback
+import threading
 
 from pathlib import Path
-from flask import request, send_file, Flask, Response
+from typing import Iterator
+from flask import request, send_file, jsonify, Flask, Response
 
 
 app = Flask(__name__)
 PORT = 3007
+
+_MIN_LENGTH = 12500
 
 @app.route("/images/mirai.jpg", methods=["GET", "HEAD"])
 def get_image():
@@ -13,6 +17,7 @@ def get_image():
   image_file_size = image_path.stat().st_size
   enable_range = request.args.get("range", default=False, type=bool)
   reject_first = request.args.get("reject_first", default=False, type=bool)
+  break_random = request.args.get("break_random", default=False, type=bool)
 
   try:
     if request.method == "HEAD":
@@ -24,16 +29,29 @@ def get_image():
     elif request.method == "GET":
       range_header = request.headers.get(key="Range")
       headers: dict[str, str] = {}
-      image_data: bytes
+      image_data: bytes | Iterator[bytes]
       if enable_range and range_header:
         start, end = _parse_range_header(range_header, image_file_size)
         length = end - start + 1
+        should_break = (break_random and length >= _MIN_LENGTH)
+
+        if should_break and _should_timeout():
+          return jsonify({"error": "Gateway Timeout"}), 504
+
         headers["Accept-Ranges"] = "bytes"
         headers["Content-Range"] = f"bytes {start}-{end}/{end - start + 1}"
         headers["Content-Length"] = str(length)
+
         with open(image_path, "rb") as file:
           file.seek(start)
           image_data = file.read(length)
+
+        if should_break:
+          def gen_image_data(data: bytes):
+            yield data[:length // 2]
+            raise ConnectionAbortedError("aborted")
+          image_data = gen_image_data(image_data)
+
       else:
         headers["Content-Length"] = str(image_file_size)
         with open(image_path, "rb") as file:
@@ -65,6 +83,17 @@ def _parse_range_header(range_header: str, file_size: int):
     raise ValueError("Invalid range")
 
   return start, end
+
+_LOCK = threading.Lock()
+_STEP: int = 0
+
+def _should_timeout() -> bool:
+  global _STEP
+  with _LOCK:
+    _STEP += 1
+    if _STEP % 2 == 0:
+      return True
+    return False
 
 if __name__ == "__main__":
   app.run(debug=False, port=PORT)

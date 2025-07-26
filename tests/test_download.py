@@ -10,9 +10,9 @@ from typing import Callable
 from threading import Thread
 
 from tests.start_flask import PORT
-from files_downloader.errors import RangeNotSupportedError
 from files_downloader.retry import Retry
 from files_downloader.file import File
+from files_downloader.errors import CanRetryError, RangeNotSupportedError
 
 
 _TEMP_PATH = Path(__file__).parent / "temp"
@@ -138,6 +138,41 @@ class TestDownload(unittest.TestCase):
       _sha256(raw_file),
     )
 
+  def test_retry_download(self):
+    temp_path = self._temp_path("test_retry_download")
+    raw_file = Path(__file__).parent / "mirai.jpg"
+    download_file = temp_path / "mirai.jpg"
+    file = self._create_file(
+      path="/images/mirai.jpg?range=true&break_random=true",
+      download_file=download_file,
+    )
+    self.assertIsNotNone(file._range_downloader)
+
+    segments_count = 4
+    tasks: list[Callable[[], None]] = []
+
+    for i in range(segments_count):
+      run_download_task = file.pop_downloading_task()
+      assert run_download_task is not None, f"Failed to pop task {i + 1}/{segments_count}"
+      tasks.append(run_download_task)
+
+    tasks_queue = [tasks[i] for i in _shuffle_indexes(segments_count, seed=12125)]
+    while tasks_queue:
+      task = tasks_queue.pop()
+      try:
+        task()
+      except CanRetryError as error:
+        assert not isinstance(error, RangeNotSupportedError), "Expected CanRetryError, not RangeNotSupportedError"
+        task = file.pop_downloading_task()
+        if task:
+          tasks_queue.append(task)
+
+    self.assertEqual(file.try_complete(), download_file)
+    self.assertEqual(
+      _sha256(download_file),
+      _sha256(raw_file),
+    )
+
   def _temp_path(self, name: str) -> Path:
     path = _TEMP_PATH / name
     path.mkdir(parents=True, exist_ok=True)
@@ -148,11 +183,11 @@ class TestDownload(unittest.TestCase):
       url=f"http://localhost:{PORT}{path}",
       file_path=download_file,
       min_segment_length=1024,
-      timeout=30.0,
+      timeout=1.5,
       once_fetch_size=2048,
       retry=Retry(
-        retry_times=30,
-        retry_sleep=5.0,
+        retry_times=0,
+        retry_sleep=0,
       ),
     )
 

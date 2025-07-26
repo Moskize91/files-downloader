@@ -155,11 +155,19 @@ class Serial:
 
     return descriptions
 
+  def interrupt(self) -> None:
+    self._interrupt_taken_segments()
+
   def dispose(self) -> None:
+    wait_count: int = self._interrupt_taken_segments()
+    if wait_count > 0:
+      self._wait_all_interrupted.wait()
+
+  def _interrupt_taken_segments(self) -> int:
     wait_count: int = 0
     with self._nodes_lock:
       if self._did_dispose:
-        return
+        return 0
       for node in self._nodes:
         if node.taken:
           node.segment.interrupt()
@@ -167,9 +175,7 @@ class Serial:
       self._wait_interrupted_segments = wait_count
       self._wait_all_interrupted.clear()
       self._did_dispose = True
-
-    if wait_count > 0:
-      self._wait_all_interrupted.wait()
+    return wait_count
 
   def pop_segment(self) -> Segment | None:
     if self._did_dispose:

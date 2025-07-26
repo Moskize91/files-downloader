@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Callable, Mapping, MutableMapping
 from threading import Lock
 
-from .common import chunk_name, CAN_RETRY_STATUS_CODES
+from .common import chunk_name, is_exception_can_retry, CAN_RETRY_STATUS_CODES
 from .errors import CanRetryError, RangeNotSupportedError
 from .retry import Retry
 from .segment import Segment
@@ -49,6 +49,7 @@ class File:
     self._singleton_lock: Lock = Lock()
     self._singleton_phase: _SingletonPhase = _SingletonPhase.NOT_STARTED
     self._range_lock: Lock = Lock()
+    self._did_cancel_range: bool = False
     self._range_downloader: RangeDownloader | None = None
     try:
       self._range_downloader = RangeDownloader(
@@ -70,7 +71,7 @@ class File:
       return None
 
     with self._range_lock:
-      range_downloader = self._range_downloader
+      range_downloader = self._validate_range_downloader()
       if range_downloader is not None:
         segment = range_downloader.serial.pop_segment()
         if not segment:
@@ -93,24 +94,18 @@ class File:
     return lambda: self._download_file(download_file)
 
   def _download_segment(self, range_downloader: RangeDownloader, segment: Segment) -> None:
-    if not self._did_stop:
-      try:
+    try:
+      if not self._did_stop:
         range_downloader.download_segment(segment)
+    except RangeNotSupportedError as error:
+      if not error.is_canceled_by:
+        with self._range_lock:
+          range_downloader.serial.interrupt()
+          self._did_cancel_range = True
+      raise error
+    finally:
+      segment.dispose()
 
-      except Exception as error:
-        not_call_dispose = True
-        if isinstance(error, RangeNotSupportedError) and not error.is_canceled_by:
-          with self._range_lock:
-            segment.dispose() # release self first
-            self._range_downloader = None
-            range_downloader.serial.dispose()
-            not_call_dispose = False
-
-        if not_call_dispose:
-          segment.dispose()
-        raise error
-
-    segment.dispose()
 
   def _download_file(self, file_path: Path) -> None:
     try:
@@ -126,14 +121,21 @@ class File:
       resp.raise_for_status()
 
       with open(file_path, "wb") as file:
-        for chunk in resp.iter_content(self._once_fetch_size):
-          if len(chunk) == 0:
-            break
-          if self._did_stop:
-            with self._singleton_lock:
-              self._singleton_phase = _SingletonPhase.FAILED
-            return
-          file.write(chunk)
+        try:
+          for chunk in resp.iter_content(self._once_fetch_size):
+            if len(chunk) == 0:
+              break
+            if self._did_stop:
+              with self._singleton_lock:
+                self._singleton_phase = _SingletonPhase.FAILED
+              return
+            file.write(chunk)
+
+        except Exception as error:
+          if is_exception_can_retry(error):
+            raise CanRetryError("Download file failed") from error
+          else:
+            raise error
 
       with self._singleton_lock:
         self._singleton_phase = _SingletonPhase.COMPLETED
@@ -145,9 +147,11 @@ class File:
 
   def try_complete(self) -> Path | None:
     chunk_paths: list[Path] = []
+    with self._range_lock:
+      range_downloader = self._validate_range_downloader()
 
-    if self._range_downloader is not None:
-      serial = self._range_downloader.serial
+    if range_downloader is not None:
+      serial = range_downloader.serial
       if not serial.is_completed:
         return None
       for description in serial.snapshot():
@@ -189,5 +193,18 @@ class File:
       return
     self._did_stop = True
 
-    if self._range_downloader:
-      self._range_downloader.serial.dispose()
+    with self._range_lock:
+      range_downloader = self._range_downloader
+      if range_downloader is not None:
+        range_downloader.serial.dispose()
+        self._range_downloader = None
+        self._did_cancel_range = False
+
+  def _validate_range_downloader(self) -> RangeDownloader | None:
+    range_downloader = self._range_downloader
+    if self._did_cancel_range and range_downloader is not None:
+      range_downloader.serial.dispose()
+      range_downloader = None
+      self._range_downloader = None
+
+    return range_downloader

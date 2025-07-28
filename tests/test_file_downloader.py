@@ -10,8 +10,8 @@ from typing import Callable
 from threading import Thread
 
 from tests.start_flask import PORT
+from files_downloader.common import Retry, HTTPOptions
 from files_downloader.file import (
-  Retry,
   FileDownloader,
   InterruptionError,
   CanRetryError,
@@ -233,14 +233,18 @@ class TestDownload(unittest.TestCase):
 
   def _create_file(self, path: str, download_file: Path) -> FileDownloader:
     return FileDownloader(
-      url=f"http://localhost:{PORT}{path}",
       file_path=download_file,
       min_segment_length=1024,
-      timeout=1.5,
       once_fetch_size=2048,
-      retry=Retry(
-        retry_times=0,
-        retry_sleep=0,
+      http_options=HTTPOptions(
+        url=f"http://localhost:{PORT}{path}",
+        timeout=1.5,
+        headers=None,
+        cookies=None,
+        retry=Retry(
+          retry_times=0,
+          retry_sleep=0,
+        ),
       ),
     )
 

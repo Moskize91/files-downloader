@@ -3,12 +3,12 @@ import shutil
 
 from pathlib import Path
 from enum import Enum
-from typing import Callable, Mapping, MutableMapping
+from typing import Callable
 from threading import Lock
 
-from .common import chunk_name, is_exception_can_retry, CAN_RETRY_STATUS_CODES
+from ..common import is_exception_can_retry, CAN_RETRY_STATUS_CODES, HTTPOptions
+from .common import chunk_name
 from .errors import CanRetryError, RangeNotSupportedError
-from .retry import Retry
 from .segment import Segment
 from .range_downloader import RangeDownloader
 from .utils import clean_path
@@ -23,27 +23,19 @@ class _SingletonPhase(Enum):
 class FileDownloader:
   def __init__(
         self,
-        url: str,
         file_path: Path,
+        http_options: HTTPOptions,
         min_segment_length: int,
-        retry: Retry,
-        timeout: float,
         once_fetch_size: int,
         excepted_etag: str | None = None,
-        headers: Mapping[str, str | bytes | None] | None = None,
-        cookies: MutableMapping[str, str] | None = None,
       ) -> None:
 
     assert not file_path.exists(), "file already exists"
 
-    self._url: str = url
     self._file_path: Path = file_path
+    self._http_options: HTTPOptions = http_options
     self._min_segment_length: int = min_segment_length
-    self._retry: Retry = retry
-    self._timeout: float = timeout
     self._once_fetch_size: int = once_fetch_size
-    self._headers: Mapping[str, str | bytes | None] | None = headers
-    self._cookies: MutableMapping[str, str] | None = cookies
 
     self._did_dispose: bool = False
     self._singleton_lock: Lock = Lock()
@@ -53,15 +45,11 @@ class FileDownloader:
     self._range_downloader: RangeDownloader | None = None
     try:
       self._range_downloader = RangeDownloader(
-        url=url,
         file_path=file_path,
+        http_options=http_options,
         min_segment_length=min_segment_length,
-        retry=retry,
-        timeout=timeout,
         once_fetch_size=once_fetch_size,
         excepted_etag=excepted_etag,
-        headers=headers,
-        cookies=cookies,
       )
     except RangeNotSupportedError:
       pass
@@ -110,10 +98,10 @@ class FileDownloader:
     try:
       resp = requests.Session().get(
         stream=True,
-        url=self._url,
-        headers=self._headers,
-        cookies=self._cookies,
-        timeout=self._timeout,
+        url=self._http_options.url,
+        headers=self._http_options.headers,
+        cookies=self._http_options.cookies,
+        timeout=self._http_options.timeout,
       )
       if resp.status_code in CAN_RETRY_STATUS_CODES:
         raise CanRetryError(f"HTTP {resp.status_code} - {resp.reason}")

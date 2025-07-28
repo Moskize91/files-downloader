@@ -2,12 +2,12 @@ import glob
 import requests
 
 from pathlib import Path
-from typing import Callable, Mapping, MutableMapping
+from typing import Callable, Mapping
 from threading import Lock, Event
 
+from ..common import is_exception_can_retry, CAN_RETRY_STATUS_CODES, Retry, HTTPOptions
 from .segment import Serial, Segment, SegmentDescription
-from .retry import Retry
-from .common import chunk_name, is_exception_can_retry, DOWNLOADING_SUFFIX, CAN_RETRY_STATUS_CODES
+from .common import chunk_name, DOWNLOADING_SUFFIX
 from .errors import CanRetryError, RangeNotSupportedError
 from .utils import clean_path
 
@@ -16,31 +16,24 @@ from .utils import clean_path
 class RangeDownloader:
   def __init__(
         self,
-        url: str,
         file_path: Path,
+        http_options: HTTPOptions,
         min_segment_length: int,
-        retry: Retry,
-        timeout: float,
         once_fetch_size: int,
         excepted_etag: str | None = None,
-        headers: Mapping[str, str | bytes | None] | None = None,
-        cookies: MutableMapping[str, str] | None = None,
       ) -> None:
 
-    self._url: str = url
     self._file_path: Path = file_path
+    self._http_options: HTTPOptions = http_options
     self._min_segment_length: int = min_segment_length
-    self._timeout: float = timeout
     self._once_fetch_size: int = once_fetch_size
-    self._headers: Mapping[str, str | bytes | None] | None = headers
-    self._cookies: MutableMapping[str, str] | None = cookies
 
     self._padding_lock: Lock = Lock()
     self._is_first_fetch: bool = True
     self._did_support_range: bool = False
     self._support_range_event: Event = Event()
 
-    content_length, etag, range_useable = self._fetch_meta(retry)
+    content_length, etag, range_useable = self._fetch_meta(http_options.retry)
     if content_length is None:
       raise ValueError("Content-Length header is missing in response")
     if not range_useable:
@@ -55,10 +48,10 @@ class RangeDownloader:
   def _fetch_meta(self, retry: Retry):
     resp = retry.request(
       request=lambda: requests.head(
-        url=self._url,
-        headers=self._headers,
-        cookies=self._cookies,
-        timeout=self._timeout,
+        url=self._http_options.url,
+        headers=self._http_options.headers,
+        cookies=self._http_options.cookies,
+        timeout=self._http_options.timeout,
       ),
     )
     content_length = resp.headers.get("Content-Length")
@@ -193,15 +186,17 @@ class RangeDownloader:
     download_end = segment.offset + segment.length - 1
     download_length = download_end - download_start + 1
 
-    headers: Mapping[str, str | bytes | None] = {**self._headers} if self._headers else {}
-    headers["Range"] = f"{download_start}-{download_end}"
+    headers: Mapping[str, str | bytes | None] = {}
+    if self._http_options.headers:
+      headers.update(self._http_options.headers)
 
+    headers["Range"] = f"{download_start}-{download_end}"
     resp = requests.Session().get(
       stream=True,
-      url=self._url,
+      url=self._http_options.url,
       headers=headers,
-      cookies=self._cookies,
-      timeout=self._timeout,
+      cookies=self._http_options.cookies,
+      timeout=self._http_options.timeout,
     )
     if resp.status_code in CAN_RETRY_STATUS_CODES:
       raise CanRetryError(f"HTTP {resp.status_code} - {resp.reason}")

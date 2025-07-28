@@ -1,8 +1,37 @@
-from typing import Callable
+import requests
+
+from typing import Callable, Mapping, MutableMapping
+from dataclasses import dataclass
 from time import sleep
 from requests import exceptions, Response
-from .common import CAN_RETRY_STATUS_CODES
 
+
+@dataclass
+class HTTPOptions:
+  url: str
+  timeout: float
+  retry: "Retry"
+  headers: Mapping[str, str | bytes | None] | None
+  cookies: MutableMapping[str, str] | None
+
+CAN_RETRY_STATUS_CODES = (408, 429, 502, 503, 504)
+
+_CAN_RETRY_EXCEPTIONS = (
+  requests.exceptions.ConnectionError,
+  requests.exceptions.Timeout,
+  requests.exceptions.ProxyError,
+  requests.exceptions.SSLError,
+  requests.exceptions.ChunkedEncodingError,
+  requests.exceptions.ReadTimeout,
+  requests.exceptions.ConnectTimeout,
+  requests.exceptions.TooManyRedirects,
+)
+
+def is_exception_can_retry(error: Exception) -> bool:
+  for retry_class in _CAN_RETRY_EXCEPTIONS:
+    if isinstance(error, retry_class):
+      return True
+  return False
 
 class Retry:
   def __init__(

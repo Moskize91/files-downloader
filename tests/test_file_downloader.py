@@ -19,9 +19,9 @@ from files_downloader.file import (
 )
 
 
-_TEMP_PATH = Path(__file__).parent / "temp"
+_TEMP_PATH = Path(__file__).parent / "temp" / "file_downloader"
 
-class TestDownload(unittest.TestCase):
+class TestFileDownloader(unittest.TestCase):
 
   @classmethod
   def setUpClass(cls):
@@ -51,7 +51,7 @@ class TestDownload(unittest.TestCase):
     self.assertIsNone(file.pop_downloading_task())
     run_download_task()
 
-    raw_file = Path(__file__).parent / "mirai.jpg"
+    raw_file = Path(__file__).parent / "assets" / "mirai.jpg"
     chunk_file = download_file.parent / f"{download_file.name}.downloading"
     self.assertTrue(chunk_file.exists())
     self.assertEqual(
@@ -68,7 +68,7 @@ class TestDownload(unittest.TestCase):
 
   def test_download_segments(self):
     temp_path = self._temp_path("test_download_segments")
-    raw_file = Path(__file__).parent / "mirai.jpg"
+    raw_file = Path(__file__).parent / "assets" / "mirai.jpg"
     download_file = temp_path / "mirai.jpg"
     file = self._create_file(
       path="/images/mirai.jpg?range=true",
@@ -96,7 +96,7 @@ class TestDownload(unittest.TestCase):
 
   def test_download_fake_segments(self):
     temp_path = self._temp_path("test_download_fake_segments")
-    raw_file = Path(__file__).parent / "mirai.jpg"
+    raw_file = Path(__file__).parent / "assets" / "mirai.jpg"
     download_file = temp_path / "mirai.jpg"
     file = self._create_file(
       path="/images/mirai.jpg",
@@ -144,7 +144,7 @@ class TestDownload(unittest.TestCase):
 
   def test_retry_download(self):
     temp_path = self._temp_path("test_retry_download")
-    raw_file = Path(__file__).parent / "mirai.jpg"
+    raw_file = Path(__file__).parent / "assets" / "mirai.jpg"
     download_file = temp_path / "mirai.jpg"
     file = self._create_file(
       path="/images/mirai.jpg?range=true&break_random=true",

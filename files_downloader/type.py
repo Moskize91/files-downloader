@@ -6,7 +6,7 @@ from os import PathLike
 @dataclass
 class Task:
   url: str
-  file: PathLike
+  file: str | PathLike
   headers: Mapping[str, str | bytes | None] | None = None
   cookies: MutableMapping[str, str] | None = None
 

@@ -91,7 +91,7 @@ class FilesGroup:
       except CanRetryError as error:
         with self._lock:
           success = False
-          if self._failure_signal is not None:
+          if self._failure_signal is None:
             success = self._increase_failure_count(node)
             if not success:
               self._failure_signal = (node.task, error)
@@ -115,7 +115,7 @@ class FilesGroup:
   def _increase_failure_count(self, node: _FileNode) -> bool:
     ladder_failure_limit = self._failure_ladder[node.ladder]
     origin_ladder_nodes = self._ladder_nodes[node.ladder]
-    if node.ladder in origin_ladder_nodes:
+    if node in origin_ladder_nodes:
       node.current_ladder_failure_count += 1
       if node.current_ladder_failure_count >= ladder_failure_limit:
         origin_ladder_nodes.remove(node)
@@ -127,6 +127,7 @@ class FilesGroup:
     return True
 
   def _node_and_executor(self) -> tuple[_FileNode, Callable[[], None]] | None:
+    # TODO: 重新审视这段逻辑，在 downloader 调用 pop 后，应该 try_complete 然后将成功的删除
     window_nodes = self._ladder_nodes[0]
     for node in window_nodes:
       executor = node.downloader.pop_downloading_task()

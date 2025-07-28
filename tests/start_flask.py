@@ -11,9 +11,9 @@ PORT = 3007
 
 _MIN_LENGTH = 12500
 
-@app.route("/images/mirai.jpg", methods=["GET", "HEAD"])
-def get_image():
-  image_path = Path(__file__).parent / "assets" / "mirai.jpg"
+@app.route("/images/<file_name>", methods=["GET", "HEAD"])
+def get_image(file_name: str):
+  image_path = Path(__file__).parent / "assets" / file_name
   image_file_size = image_path.stat().st_size
   enable_range = request.args.get("range", default=False, type=bool)
   reject_first = request.args.get("reject_first", default=False, type=bool)

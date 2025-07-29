@@ -1,0 +1,55 @@
+import unittest
+
+from threading import Thread
+from files_downloader.safe_passage import SafePassage
+
+
+class TestSafePassage(unittest.TestCase):
+
+  def test_send_data(self):
+    passage: SafePassage[int] = SafePassage()
+    consumer = _TestConsumer(passage)
+    consumer.thread.start()
+    sending_data = list(range(100))
+
+    for data in sending_data:
+      passage.send(data)
+    passage.close()
+
+    self.assertListEqual(
+      list1=sending_data,
+      list2=consumer.received,
+    )
+
+  def test_build_data(self):
+    passage: SafePassage[int] = SafePassage()
+    consumer = _TestConsumer(passage)
+    consumer.thread.start()
+    sending_data = list(range(100))
+
+    for data in sending_data:
+      passage.build(lambda: data)
+    passage.close()
+
+    self.assertListEqual(
+      list1=sending_data,
+      list2=consumer.received,
+    )
+
+class _TestConsumer:
+  def __init__(self, passage: SafePassage[int]) -> None:
+    self.received: list[int] = []
+    self.end_error: Exception | None = None
+    self.thread = Thread(
+      target=self._run_consumer,
+      args=(passage,),
+    )
+
+  def _run_consumer(self, passage: SafePassage[int]):
+    while True:
+      try:
+        data = passage.receive()
+        self.received.append(data)
+      except Exception as error:
+        self.end_error = error
+        break

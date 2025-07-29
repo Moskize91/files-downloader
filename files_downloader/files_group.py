@@ -22,6 +22,7 @@ class FileDownloadError(Exception):
     super().__init__()
     self.case_error: Exception = case_error
 
+# thread safe
 class FilesGroup:
   def __init__(
         self,
@@ -56,6 +57,14 @@ class FilesGroup:
     assert len(self._failure_ladder) > 0, "failure ladder must not be empty"
     for ladder_failure_limit in self._failure_ladder:
       assert ladder_failure_limit > 0, "ladder failure limit must be greater than zero"
+
+  @property
+  def is_empty(self) -> bool:
+    with self._lock:
+      for ladder_nodes in self._ladder_nodes:
+        if ladder_nodes:
+          return False
+      return True
 
   def raise_if_failure(self) -> None:
     with self._lock:
@@ -104,13 +113,13 @@ class FilesGroup:
           if success:
             self._on_task_failed_with_retry_error(node.task, error)
           else:
-            list_safe_remove(self._ladder_nodes[node.ladder], node)
+            self._remove_node(node)
 
       except Exception as error:
         with self._lock:
           if self._failure_signal is None:
             self._failure_signal = (node.task, error)
-          list_safe_remove(self._ladder_nodes[node.ladder], node)
+            self._remove_node(node)
 
       finally:
         with self._lock:
@@ -118,7 +127,7 @@ class FilesGroup:
           if node.executors_count <= 0:
             completed_path = node.downloader.try_complete()
             if completed_path is not None:
-              list_safe_remove(self._ladder_nodes[node.ladder], node)
+              self._remove_node(node)
               self._on_task_completed(node.task)
 
     node, executor = result
@@ -139,6 +148,11 @@ class FilesGroup:
           return False
         self._ladder_nodes[node.ladder].append(node)
     return True
+
+  def _remove_node(self, node: _FileNode):
+    if node.ladder < len(self._ladder_nodes):
+      ladder_nodes = self._ladder_nodes[node.ladder]
+      list_safe_remove(ladder_nodes, node)
 
   def _node_and_executor(self) -> tuple[_FileNode, Callable[[], None]] | None:
     # TODO: 重新审视这段逻辑，在 downloader 调用 pop 后，应该 try_complete 然后将成功的删除

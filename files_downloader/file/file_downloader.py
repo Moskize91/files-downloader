@@ -85,12 +85,14 @@ class FileDownloader:
     try:
       if not self._did_dispose:
         range_downloader.download_segment(segment)
+
     except RangeNotSupportedError as error:
       if not error.is_canceled_by:
         with self._range_lock:
           range_downloader.serial.interrupt()
           self._did_cancel_range = True
       raise error
+
     finally:
       segment.dispose()
 

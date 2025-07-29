@@ -2,11 +2,11 @@ import glob
 import requests
 
 from pathlib import Path
-from typing import Callable, Mapping
-from threading import Lock, Event
+from typing import Mapping
 
 from ..common import is_exception_can_retry, CAN_RETRY_STATUS_CODES, Retry, HTTPOptions
 from .segment import Serial, Segment, SegmentDescription
+from .value_signal import ValueSignal
 from .common import chunk_name, DOWNLOADING_SUFFIX
 from .errors import CanRetryError, RangeNotSupportedError
 from .utils import clean_path
@@ -27,11 +27,7 @@ class RangeDownloader:
     self._http_options: HTTPOptions = http_options
     self._min_segment_length: int = min_segment_length
     self._once_fetch_size: int = once_fetch_size
-
-    self._padding_lock: Lock = Lock()
-    self._is_first_fetch: bool = True
-    self._did_support_range: bool = False
-    self._support_range_event: Event = Event()
+    self._support_range_signal: ValueSignal[bool] = ValueSignal()
 
     content_length, etag, range_useable = self._fetch_meta(http_options.retry)
     if content_length is None:
@@ -134,45 +130,24 @@ class RangeDownloader:
       segment.complete()
       return
 
-    def on_know_support_range() -> None:
-      with self._padding_lock:
-        self._did_support_range = True
-      self._support_range_event.set()
-
     # 服务器可能变卦，在 meta 中声明支持 Range，但真正 fetch 时又不支持了
     # 只有发起一次真正的 GET 请求，然后从 Response Head 中读取信息才能知道到底值不支持
     # 因此先让第一个 Request 发起请求，并同时阻塞其他任务，直到第一个请求的 HEAD 部分返回再进行下一步操作
-    know_support_range: Callable[[], None] | None = None
-    to_wait_event: Event | None = None
-    is_first_fetch: bool = False
+    with self._support_range_signal.context() as support_range_context:
+      if support_range_context.value == False:  # noqa: E712
+        raise RangeNotSupportedError(
+          message="Task is canceled because server rejects Range request",
+          is_canceled_by=True,
+        )
+      try:
+        response = self._create_download_segment_response(chunk_path, segment)
+      except RangeNotSupportedError as error:
+        if not error.is_canceled_by:
+          support_range_context.update_value(False)
+        raise error
 
-    with self._padding_lock:
-      if self._is_first_fetch:
-        know_support_range = on_know_support_range
-        is_first_fetch = self._is_first_fetch
-        self._is_first_fetch = False
-      elif not self._support_range_event.is_set():
-        to_wait_event = self._support_range_event
-
-    if to_wait_event:
-      to_wait_event.wait()
-      with self._padding_lock:
-        if not self._did_support_range:
-          raise RangeNotSupportedError(
-            message="Task is canceled because server rejects Range request",
-            is_canceled_by=True,
-          )
-
-    try:
-      self._download_segment_into_file(
-        chunk_path=chunk_path,
-        segment=segment,
-        know_support_range=know_support_range,
-      )
-    except RangeNotSupportedError as err:
-      if is_first_fetch:
-        self._support_range_event.set()
-      raise err
+      support_range_context.update_value(True)
+      self._download_segment_into_file(response, chunk_path, segment)
 
   def _trim_file_tail(self, file_path: Path, bytes: int) -> None:
     with open(file_path, "rb+") as file:
@@ -181,7 +156,7 @@ class RangeDownloader:
       if size >= bytes:
         file.truncate(size - bytes)
 
-  def _download_segment_into_file(self, chunk_path: Path, segment: Segment, know_support_range: Callable[[], None] | None) -> None:
+  def _create_download_segment_response(self, chunk_path: Path, segment: Segment):
     download_start = segment.offset + segment.completed_length
     download_end = segment.offset + segment.length - 1
     download_length = download_end - download_start + 1
@@ -191,44 +166,44 @@ class RangeDownloader:
       headers.update(self._http_options.headers)
 
     headers["Range"] = f"{download_start}-{download_end}"
-    resp = requests.Session().get(
+    response = requests.Session().get(
       stream=True,
       url=self._http_options.url,
       headers=headers,
       cookies=self._http_options.cookies,
       timeout=self._http_options.timeout,
     )
-    if resp.status_code in CAN_RETRY_STATUS_CODES:
-      raise CanRetryError(f"HTTP {resp.status_code} - {resp.reason}")
-    if resp.status_code == 416:
+    if response.status_code in CAN_RETRY_STATUS_CODES:
+      raise CanRetryError(f"HTTP {response.status_code} - {response.reason}")
+    if response.status_code == 416:
       raise RangeNotSupportedError("Server rejects Range request")
-    resp.raise_for_status()
+    response.raise_for_status()
 
-    if resp.status_code == 206:
-      content_range = resp.headers.get("Content-Range")
-      content_length = resp.headers.get("Content-Length")
+    if response.status_code == 206:
+      content_range = response.headers.get("Content-Range")
+      content_length = response.headers.get("Content-Length")
 
       if content_range != f"bytes {download_start}-{download_end}/{download_length}":
         raise RangeNotSupportedError(f"Unexpected Content-Range: {content_range}")
       if content_length != f"{download_length}":
         raise RangeNotSupportedError(f"Unexpected Content-Length: {content_length}")
 
-    elif resp.status_code == 200:
+    elif response.status_code == 200:
       if download_start != 0:
         raise RangeNotSupportedError("Server returns 200 OK but Range request was made")
-      content_length = resp.headers.get("Content-Length")
+      content_length = response.headers.get("Content-Length")
       if content_length != str(download_length):
-        raise RangeNotSupportedError(f"Unexpected Content-Length: {content_length}")
+        raise RangeNotSupportedError(f"Server returns 200 OK but Unexpected Content-Length: {content_length}")
 
     else:
-      raise RangeNotSupportedError(f"Server rejects Range request with status code {resp.status_code}")
+      raise RangeNotSupportedError(f"Server rejects Range request with status code {response.status_code}")
 
-    if know_support_range:
-      know_support_range()
+    return response
 
+  def _download_segment_into_file(self, response: requests.Response, chunk_path: Path, segment: Segment) -> None:
     with open(chunk_path, "ab") as file:
       try:
-        for chunk in resp.iter_content(self._once_fetch_size):
+        for chunk in response.iter_content(self._once_fetch_size):
           chunk_size = len(chunk)
           writable_size = segment.lock(chunk_size)
           if writable_size == 0:

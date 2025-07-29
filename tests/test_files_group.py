@@ -13,7 +13,7 @@ from tests.start_flask import PORT
 from files_downloader.file import CanRetryError
 from files_downloader.type import Task
 from files_downloader.common import Retry
-from files_downloader.files_group import FilesGroup
+from files_downloader.files_group import FilesGroup, FileDownloadError
 
 _TEMP_PATH = Path(__file__).parent / "temp" / "files_group"
 
@@ -44,7 +44,12 @@ class TestFilesGroup(unittest.TestCase):
       url = f"/images/{file}"
       tasks.append((url, downloaded_path))
 
-    group = self._create_files_group(tasks, retry_errors)
+    completed_tasks: list[Task] = []
+    group = self._create_files_group(
+      tasks=tasks,
+      completed_tasks=completed_tasks,
+      retry_errors=retry_errors,
+    )
     while True:
       executor = group.pop_downloading_executor()
       if not executor:
@@ -54,7 +59,10 @@ class TestFilesGroup(unittest.TestCase):
 
     self.assertListEqual(retry_errors, [])
     self.assertTrue(group.is_empty)
-
+    self.assertListEqual(
+      [Path(task.file).name for task in completed_tasks],
+      files,
+    )
     for (_, downloaded_path), file in zip(tasks, files):
       self.assertEqual(
         _sha256(Path(downloaded_path)),
@@ -85,7 +93,7 @@ class TestFilesGroup(unittest.TestCase):
         url += "?" + "&".join(query)
       tasks.append((url, downloaded_path))
 
-    group = self._create_files_group(tasks, retry_errors)
+    group = self._create_files_group(tasks, retry_errors=retry_errors)
     threads: list[Thread] = []
     raised_error: Exception | None = None
 
@@ -122,18 +130,59 @@ class TestFilesGroup(unittest.TestCase):
         _sha256(Path(__file__).parent / "assets" / file),
       )
 
+  def test_download_404_and_dispose(self):
+    temp_path = self._temp_path("test_download_404_and_dispose")
+    files = ["alfred.jpg", "mirai.jpg", "mysteries.jpg", "404.jpg", "retrato.jpg"]
+    tasks: list[tuple[str, str]] = [
+      (f"/images/{file}", str(temp_path / file))
+      for file in files
+    ]
+    group = self._create_files_group(tasks)
+    threads: list[Thread] = []
+    raised_error: Exception | None = None
+
+    for _ in range(4):
+      def run_in_background(group: FilesGroup):
+        nonlocal raised_error
+        try:
+          while True:
+            executor = group.pop_downloading_executor()
+            if executor is None:
+              break
+            executor()
+            group.raise_if_failure()
+
+        except Exception as error:
+          raised_error = error
+          group.dispose()
+
+      thread = Thread(target=lambda: run_in_background(group))
+      thread.start()
+      threads.append(thread)
+
+    for thread in threads:
+      thread.join()
+
+    self.assertIsInstance(raised_error, FileDownloadError)
+    self.assertFalse(group.is_empty)
+
   def _create_files_group(
         self, tasks: list[tuple[str, str]],
+        completed_tasks: list[Task] | None = None,
         retry_errors: list[CanRetryError] | None = None,
       ) -> FilesGroup:
 
-    retry_errors_lock = Lock()
-    if retry_errors is None:
-      retry_errors = []
+    list_lock = Lock()
 
-    def on_catch_error(_: Task, error: CanRetryError):
-      with retry_errors_lock:
-        retry_errors.append(error)
+    def on_task_completed(task: Task):
+      if completed_tasks is not None:
+        with list_lock:
+          completed_tasks.append(task)
+
+    def on_task_failed_with_retry_error(_: Task, error: CanRetryError):
+      if retry_errors is not None:
+        with list_lock:
+          retry_errors.append(error)
 
     return FilesGroup(
       tasks_iter = (
@@ -151,8 +200,8 @@ class TestFilesGroup(unittest.TestCase):
       once_fetch_size=2048,
       skip_existing=False,
       timeout=1.5,
-      on_task_completed=None,
-      on_task_failed_with_retry_error=on_catch_error,
+      on_task_completed=on_task_completed,
+      on_task_failed_with_retry_error=on_task_failed_with_retry_error,
       retry=Retry(
         retry_times=0,
         retry_sleep=0,

@@ -194,12 +194,16 @@ class FilesGroup:
       headers=task.headers,
       cookies=task.cookies,
     )
-    downloader = FileDownloader(
-      file_path=task_file_path,
-      http_options=http_options,
-      min_segment_length=self._min_segment_length,
-      once_fetch_size=self._once_fetch_size,
-    )
+    try:
+      downloader = FileDownloader(
+        file_path=task_file_path,
+        http_options=http_options,
+        min_segment_length=self._min_segment_length,
+        once_fetch_size=self._once_fetch_size,
+      )
+    except Exception as error:
+      raise FileDownloadError(error)
+
     return _FileNode(
       task=task,
       downloader=downloader,

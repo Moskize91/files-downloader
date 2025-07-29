@@ -204,16 +204,24 @@ class RangeDownloader:
       raise RangeNotSupportedError("Server rejects Range request")
     resp.raise_for_status()
 
-    if resp.status_code != 206:
+    if resp.status_code == 206:
+      content_range = resp.headers.get("Content-Range")
+      content_length = resp.headers.get("Content-Length")
+
+      if content_range != f"bytes {download_start}-{download_end}/{download_length}":
+        raise RangeNotSupportedError(f"Unexpected Content-Range: {content_range}")
+      if content_length != f"{download_length}":
+        raise RangeNotSupportedError(f"Unexpected Content-Length: {content_length}")
+
+    elif resp.status_code == 200:
+      if download_start != 0:
+        raise RangeNotSupportedError("Server returns 200 OK but Range request was made")
+      content_length = resp.headers.get("Content-Length")
+      if content_length != str(download_length):
+        raise RangeNotSupportedError(f"Unexpected Content-Length: {content_length}")
+
+    else:
       raise RangeNotSupportedError(f"Server rejects Range request with status code {resp.status_code}")
-
-    content_range = resp.headers.get("Content-Range")
-    content_length = resp.headers.get("Content-Length")
-
-    if content_range != f"bytes {download_start}-{download_end}/{download_length}":
-      raise RangeNotSupportedError(f"Unexpected Content-Range: {content_range}")
-    if content_length != f"{download_length}":
-      raise RangeNotSupportedError(f"Unexpected Content-Length: {content_length}")
 
     if know_support_range:
       know_support_range()

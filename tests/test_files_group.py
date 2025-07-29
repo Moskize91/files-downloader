@@ -10,6 +10,7 @@ from typing import Callable
 from threading import Thread
 
 from tests.start_flask import PORT
+from files_downloader.file import CanRetryError
 from files_downloader.type import Task
 from files_downloader.common import Retry
 from files_downloader.files_group import FilesGroup
@@ -36,10 +37,14 @@ class TestFilesGroup(unittest.TestCase):
   def test_download_all_files(self):
     temp_path = self._temp_path("test_download_all_files")
     files = ["alfred.jpg", "mirai.jpg", "mysteries.jpg", "retrato.jpg"]
-    group = self._create_files_group([
-      (f"/images/{file}", str(temp_path / file))
-      for file in files
-    ])
+    retry_errors: list[CanRetryError] = []
+    group = self._create_files_group(
+      retry_errors=retry_errors,
+      tasks=[
+        (f"/images/{file}", str(temp_path / file))
+        for file in files
+      ],
+    )
     while True:
       executor = group.pop_downloading_executor()
       if not executor:
@@ -47,7 +52,15 @@ class TestFilesGroup(unittest.TestCase):
       executor()
       group.raise_if_failure()
 
-  def _create_files_group(self, tasks: list[tuple[str, str]]) -> FilesGroup:
+    self.assertListEqual(retry_errors, [])
+
+  def _create_files_group(
+        self, tasks: list[tuple[str, str]],
+        retry_errors: list[CanRetryError] | None = None,
+      ) -> FilesGroup:
+
+    if retry_errors is None:
+      retry_errors = []
     return FilesGroup(
       tasks_iter = (
         Task(
@@ -64,6 +77,8 @@ class TestFilesGroup(unittest.TestCase):
       once_fetch_size=2048,
       skip_existing=False,
       timeout=1.5,
+      on_task_completed=None,
+      on_task_failed_with_retry_error=lambda _, error: retry_errors.append(error),
       retry=Retry(
         retry_times=0,
         retry_sleep=0,

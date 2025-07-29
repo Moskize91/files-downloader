@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from .file import FileDownloader, CanRetryError, InterruptionError
 from .type import Task, TaskError
 from .common import HTTPOptions, Retry
+from .utils import list_safe_remove
 
 
 @dataclass
@@ -14,6 +15,7 @@ class _FileNode:
   downloader: FileDownloader
   ladder: int
   current_ladder_failure_count: int
+  executors_count: int
 
 class FileDownloadError(Exception):
   def __init__(self, case_error: Exception) -> None:
@@ -31,6 +33,8 @@ class FilesGroup:
         skip_existing: bool,
         timeout: float,
         retry: Retry,
+        on_task_completed: Callable[[Task], None] | None,
+        on_task_failed_with_retry_error: Callable[[Task, CanRetryError], None] | None
       ) -> None:
 
     self._tasks_iter: Iterator[Task] = tasks_iter
@@ -40,6 +44,8 @@ class FilesGroup:
     self._skip_existing: bool = skip_existing
     self._timeout: float = timeout
     self._retry: Retry = retry
+    self._on_task_completed: Callable[[Task], None] = on_task_completed or (lambda _: None)
+    self._on_task_failed_with_retry_error: Callable[[Task, CanRetryError], None] = on_task_failed_with_retry_error or (lambda _, __: None)
 
     self._lock: Lock = Lock()
     self._did_call_dispose: bool = False
@@ -48,7 +54,7 @@ class FilesGroup:
     self._ladder_nodes: list[list[_FileNode]] = [[]] * len(self._failure_ladder)
 
     assert len(self._failure_ladder) > 0, "failure ladder must not be empty"
-    for i, ladder_failure_limit in enumerate(self._failure_ladder):
+    for ladder_failure_limit in self._failure_ladder:
       assert ladder_failure_limit > 0, "ladder failure limit must be greater than zero"
 
   def raise_if_failure(self) -> None:
@@ -95,22 +101,30 @@ class FilesGroup:
             success = self._increase_failure_count(node)
             if not success:
               self._failure_signal = (node.task, error)
-          if not success:
-            self._remove_failure_node(node)
+          if success:
+            self._on_task_failed_with_retry_error(node.task, error)
+          else:
+            list_safe_remove(self._ladder_nodes[node.ladder], node)
 
       except Exception as error:
         with self._lock:
           if self._failure_signal is None:
             self._failure_signal = (node.task, error)
-          self._remove_failure_node(node)
+          list_safe_remove(self._ladder_nodes[node.ladder], node)
+
+      finally:
+        with self._lock:
+          node.executors_count -= 1
+          if node.executors_count <= 0:
+            completed_path = node.downloader.try_complete()
+            if completed_path is not None:
+              list_safe_remove(self._ladder_nodes[node.ladder], node)
+              self._on_task_completed(node.task)
 
     node, executor = result
-    return lambda: run_downloader_executor(node, executor)
+    node.executors_count += 1
 
-  def _remove_failure_node(self, node: _FileNode) -> None:
-    ladder_nodes = self._ladder_nodes[node.ladder]
-    if node in ladder_nodes:
-      ladder_nodes.remove(node)
+    return lambda: run_downloader_executor(node, executor)
 
   def _increase_failure_count(self, node: _FileNode) -> bool:
     ladder_failure_limit = self._failure_ladder[node.ladder]
@@ -177,4 +191,5 @@ class FilesGroup:
       downloader=downloader,
       ladder=0,
       current_ladder_failure_count=0,
+      executors_count=0,
     )

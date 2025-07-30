@@ -36,6 +36,41 @@ class TestSafePassage(unittest.TestCase):
       list2=consumer.received,
     )
 
+  def test_reject_data(self):
+    passage: SafePassage[int] = SafePassage()
+    built: list[int] = []
+    received: list[int] = []
+
+    def build_data() -> int:
+      data = len(built) + 1
+      built.append(data)
+      return data
+
+    def run_consumer():
+      while True:
+        if len(received) >= 60:
+          passage.reject(RuntimeError())
+          break
+        else:
+          data = passage.receive()
+          received.append(data)
+
+    thread = Thread(target=run_consumer)
+    thread.start()
+    broken_error: Exception | None = None
+
+    for _ in range(100):
+      try:
+        passage.build(build_data)
+      except Exception as error:
+        broken_error = error
+        break
+
+    thread.join()
+    self.assertIsInstance(broken_error, RuntimeError)
+    self.assertListEqual(built, received)
+    self.assertListEqual(built, list(range(1, 60 + 1)))
+
 class _TestConsumer:
   def __init__(self, passage: SafePassage[int]) -> None:
     self.received: list[int] = []

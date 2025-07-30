@@ -17,6 +17,7 @@ class SafePassage(Generic[D]):
     self._consumer_can_receive_semaphore: Semaphore = Semaphore(0)
     self._consumer_did_receive_semaphore: Semaphore = Semaphore(0)
     self._buffer: tuple[D] | Exception | None = None
+    self._rejected_error: Exception | None = None
     self._did_close: bool = False
 
   @property
@@ -27,8 +28,8 @@ class SafePassage(Generic[D]):
   def send(self, data: D) -> None:
     self._run_send((data,))
 
-  def build(self, build_data: Callable[[], D]) -> None:
-    self._run_send(build_data)
+  def build(self, builder: Callable[[], D]) -> None:
+    self._run_send(builder)
 
   def _run_send(self, target: tuple[D] | Callable[[], D]) -> None:
     with self._producer_lock:
@@ -39,6 +40,12 @@ class SafePassage(Generic[D]):
 
       with self._main_lock:
         self._assert_not_closed()
+        if self._rejected_error is not None:
+          error = self._rejected_error
+          self._rejected_error = None
+          self._consumer_can_receive_semaphore.release()
+          raise error
+
         if isinstance(target, tuple):
           self._buffer = target
         else:
@@ -78,6 +85,14 @@ class SafePassage(Generic[D]):
 
       finally:
         self._consumer_did_receive_semaphore.release()
+
+  def reject(self, error: Exception) -> None:
+    with self._consumer_lock:
+      with self._main_lock:
+        self._assert_not_closed()
+        self._rejected_error = error
+        self._sender_semaphore.release()
+      self._consumer_can_receive_semaphore.acquire()
 
   def _assert_not_closed(self) -> None:
     if self._did_close:

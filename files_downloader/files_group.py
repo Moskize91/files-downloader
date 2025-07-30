@@ -1,10 +1,10 @@
 from typing import Iterator, Iterable, Callable
 from pathlib import Path
-from threading import Lock
+from threading import Lock, Event
 from dataclasses import dataclass
 
 from .file import FileDownloader, CanRetryError, InterruptionError
-from .type import Task, TaskError
+from .type import Task, TaskError, RetryError, TooManyRetriesError, FileDownloadError
 from .common import HTTPOptions, Retry
 from .utils import list_safe_remove
 
@@ -16,11 +16,6 @@ class _FileNode:
   ladder: int
   current_ladder_failure_count: int
   executors_count: int
-
-class FileDownloadError(Exception):
-  def __init__(self, case_error: Exception) -> None:
-    super().__init__()
-    self.case_error: Exception = case_error
 
 # thread safe
 class FilesGroup:
@@ -35,7 +30,8 @@ class FilesGroup:
         timeout: float,
         retry: Retry,
         on_task_completed: Callable[[Task], None] | None,
-        on_task_failed_with_retry_error: Callable[[Task, CanRetryError], None] | None
+        on_task_failed: Callable[[TaskError], None] | None,
+        on_task_failed_with_retry_error: Callable[[RetryError], None] | None,
       ) -> None:
 
     self._tasks_iter: Iterator[Task] = tasks_iter
@@ -46,17 +42,21 @@ class FilesGroup:
     self._timeout: float = timeout
     self._retry: Retry = retry
     self._on_task_completed: Callable[[Task], None] = on_task_completed or (lambda _: None)
-    self._on_task_failed_with_retry_error: Callable[[Task, CanRetryError], None] = on_task_failed_with_retry_error or (lambda _, __: None)
+    self._on_task_failed: Callable[[TaskError], None] | None = on_task_failed
+    self._on_task_failed_with_retry_error: Callable[[RetryError], None] = on_task_failed_with_retry_error or (lambda _: None)
 
     self._lock: Lock = Lock()
     self._did_call_dispose: bool = False
-    self._failure_signal: tuple[Task, Exception] | None = None
+    self._failure_error: TaskError | None = None
     self._failure_ladder: tuple[int, ...] = tuple(failure_ladder)
     self._ladder_nodes: list[list[_FileNode]] = [[]] * len(self._failure_ladder)
+    self._maybe_create_new_executors: Event = Event()
 
     assert len(self._failure_ladder) > 0, "failure ladder must not be empty"
     for ladder_failure_limit in self._failure_ladder:
       assert ladder_failure_limit > 0, "ladder failure limit must be greater than zero"
+
+    self._maybe_create_new_executors.set()
 
   @property
   def is_empty(self) -> bool:
@@ -68,12 +68,8 @@ class FilesGroup:
 
   def raise_if_failure(self) -> None:
     with self._lock:
-      if self._failure_signal is not None:
-        task, error = self._failure_signal
-        if isinstance(error, CanRetryError):
-          raise TaskError(task) from error
-        else:
-          raise FileDownloadError(error)
+      if self._failure_error is not None:
+        raise self._failure_error
 
   def dispose(self) -> None:
     downloaders: list[FileDownloader] = []
@@ -88,12 +84,18 @@ class FilesGroup:
     for downloader in downloaders:
       downloader.dispose()
 
+  def wait_windows_update(self) -> None:
+    # window 中的 node 被删除了，window 才有可能继续滑动，或者，有一个任务失败了，导致 node 被释放
+    # 用户监听到该事件后，可以重新调用 pop_downloading_executor() 试图滑动 window 开始新任务
+    self._maybe_create_new_executors.wait()
+
   def pop_downloading_executor(self) -> Callable[[], None] | None:
     with self._lock:
-      if self._failure_signal is not None:
+      if self._failure_error is not None:
         return None
       result = self._node_and_executor()
       if not result:
+        self._maybe_create_new_executors.clear()
         return None
 
     # running in background thread
@@ -105,21 +107,18 @@ class FilesGroup:
 
       except CanRetryError as error:
         with self._lock:
-          success = False
-          if self._failure_signal is None:
-            success = self._increase_failure_count(node)
-            if not success:
-              self._failure_signal = (node.task, error)
+          success = self._increase_failure_count(node)
           if success:
-            self._on_task_failed_with_retry_error(node.task, error)
+            self._on_task_failed_with_retry_error(RetryError(node.task, error))
+            self._maybe_create_new_executors.set()
           else:
             self._remove_node(node)
+            self._emit_failure_error(TooManyRetriesError(node.task, error))
 
       except Exception as error:
         with self._lock:
-          if self._failure_signal is None:
-            self._failure_signal = (node.task, error)
-            self._remove_node(node)
+          self._remove_node(node)
+          self._emit_failure_error(FileDownloadError(node.task, error))
 
       finally:
         with self._lock:
@@ -152,10 +151,11 @@ class FilesGroup:
   def _remove_node(self, node: _FileNode):
     if node.ladder < len(self._ladder_nodes):
       ladder_nodes = self._ladder_nodes[node.ladder]
-      list_safe_remove(ladder_nodes, node)
+      removed_node = list_safe_remove(ladder_nodes, node)
+      if removed_node is not None:
+        self._maybe_create_new_executors.set()
 
   def _node_and_executor(self) -> tuple[_FileNode, Callable[[], None]] | None:
-    # TODO: 重新审视这段逻辑，在 downloader 调用 pop 后，应该 try_complete 然后将成功的删除
     window_nodes = self._ladder_nodes[0]
     for node in window_nodes:
       executor = node.downloader.pop_downloading_task()
@@ -202,7 +202,7 @@ class FilesGroup:
         once_fetch_size=self._once_fetch_size,
       )
     except Exception as error:
-      raise FileDownloadError(error)
+      raise FileDownloadError(task, error)
 
     return _FileNode(
       task=task,
@@ -211,3 +211,9 @@ class FilesGroup:
       current_ladder_failure_count=0,
       executors_count=0,
     )
+
+  def _emit_failure_error(self, error: TaskError) -> None:
+    if self._on_task_failed:
+      self._on_task_failed(error)
+    else:
+      self._failure_error = error

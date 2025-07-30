@@ -10,10 +10,10 @@ from threading import Thread, Lock
 from parameterized import parameterized
 
 from tests.start_flask import PORT
-from files_downloader.file import CanRetryError
-from files_downloader.type import Task
+from files_downloader.type import Task, RetryError
 from files_downloader.common import Retry
 from files_downloader.files_group import FilesGroup, FileDownloadError
+from files_downloader.invoker import download
 
 _TEMP_PATH = Path(__file__).parent / "temp" / "files_group"
 
@@ -37,7 +37,7 @@ class TestFilesGroup(unittest.TestCase):
   def test_download_all_files(self):
     temp_path = self._temp_path("test_download_all_files")
     files = ["alfred.jpg", "mirai.jpg", "mysteries.jpg", "retrato.jpg"]
-    retry_errors: list[CanRetryError] = []
+    retry_errors: list[RetryError] = []
     tasks: list[tuple[str, str]] = []
     for file in files:
       downloaded_path = str(temp_path / file)
@@ -74,10 +74,48 @@ class TestFilesGroup(unittest.TestCase):
     ("_retry", True, False),
     ("_break", True, True),
   ])
+  def test_call_invoker_download(self, tail: str, retry: bool, break_random: bool):
+    temp_path = self._temp_path("test_call_invoker_download" + tail)
+    files = ["alfred.jpg", "mirai.jpg", "mysteries.jpg", "retrato.jpg"]
+    tasks: list[Task] = []
+
+    for file in files:
+      url = f"/images/{file}"
+      query: list[str] = []
+      if retry:
+        query.append("range=true")
+      else:
+        query.append("reject_first=true")
+      if break_random:
+        query.append("break_random=true")
+      if query:
+        url += "?" + "&".join(query)
+
+      tasks.append(Task(
+        url=f"http://localhost:{PORT}{url}",
+        file=temp_path / file,
+        headers=None,
+        cookies=None,
+      ))
+
+    download(
+      tasks_iter=iter(tasks),
+      threads_count=4,
+      window_width=2,
+      failure_ladder= (50, 50),
+      min_segment_length=9216,
+      once_fetch_size=2048,
+    )
+
+  @parameterized.expand([
+    ("", False, False),
+    ("_retry", True, False),
+    ("_break", True, True),
+  ])
   def test_download_in_background(self, tail: str, retry: bool, break_random: bool):
     temp_path = self._temp_path("test_download_in_background" + tail)
     files = ["alfred.jpg", "mirai.jpg", "mysteries.jpg", "retrato.jpg"]
-    retry_errors: list[CanRetryError] = []
+    retry_errors: list[RetryError] = []
     tasks: list[tuple[str, str]] = []
     for file in files:
       downloaded_path = str(temp_path / file)
@@ -169,7 +207,7 @@ class TestFilesGroup(unittest.TestCase):
   def _create_files_group(
         self, tasks: list[tuple[str, str]],
         completed_tasks: list[Task] | None = None,
-        retry_errors: list[CanRetryError] | None = None,
+        retry_errors: list[RetryError] | None = None,
       ) -> FilesGroup:
 
     list_lock = Lock()
@@ -179,7 +217,7 @@ class TestFilesGroup(unittest.TestCase):
         with list_lock:
           completed_tasks.append(task)
 
-    def on_task_failed_with_retry_error(_: Task, error: CanRetryError):
+    def on_task_failed_with_retry_error(error: RetryError):
       if retry_errors is not None:
         with list_lock:
           retry_errors.append(error)
@@ -201,6 +239,7 @@ class TestFilesGroup(unittest.TestCase):
       skip_existing=False,
       timeout=1.5,
       on_task_completed=on_task_completed,
+      on_task_failed=None,
       on_task_failed_with_retry_error=on_task_failed_with_retry_error,
       retry=Retry(
         retry_times=0,

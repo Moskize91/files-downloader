@@ -149,7 +149,7 @@ class TestFilesGroup(unittest.TestCase):
           traceback.print_exc()
           raised_error = error
 
-      thread = Thread(target=lambda: run_in_background(group))
+      thread = Thread(target=run_in_background, args=(group,))
       thread.start()
       threads.append(thread)
 
@@ -194,7 +194,7 @@ class TestFilesGroup(unittest.TestCase):
           raised_error = error
           group.dispose()
 
-      thread = Thread(target=lambda: run_in_background(group))
+      thread = Thread(target=run_in_background, args=(group,))
       thread.start()
       threads.append(thread)
 

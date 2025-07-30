@@ -28,7 +28,7 @@ class TestSafePassage(unittest.TestCase):
     sending_data = list(range(100))
 
     for data in sending_data:
-      passage.build(lambda: data)
+      passage.build(lambda d=data: d)
     passage.close()
 
     self.assertListEqual(

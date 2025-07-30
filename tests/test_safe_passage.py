@@ -1,7 +1,7 @@
 import unittest
 
 from threading import Thread
-from files_downloader.safe_passage import SafePassage
+from downloaderx.safe_passage import SafePassage
 
 
 class TestSafePassage(unittest.TestCase):

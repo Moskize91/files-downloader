@@ -27,7 +27,7 @@ jobs:
 
       - name: Lint
         run: |
-          poetry run pylint ./files_downloader/**/*.py ./tests/**/*.py
+          poetry run pylint ./downloaderx/**/*.py ./tests/**/*.py
 
       - name: Run unit tests
         run: poetry run python test.py

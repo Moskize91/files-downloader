@@ -9,7 +9,7 @@ from .common import Retry
 
 
 def download(
-      tasks_iter: Iterator[Task],
+      tasks_iter: Task | Iterator[Task],
       window_width: int = 7,
       threads_count: int = 1,
       failure_ladder: int | Iterable[int] = 5,
@@ -25,6 +25,9 @@ def download(
     ) -> None:
 
   assert threads_count > 0, "threads_count must be greater than zero"
+
+  if isinstance(tasks_iter, Task):
+    tasks_iter = iter([tasks_iter])
 
   if isinstance(failure_ladder, int):
     failure_ladder = (failure_ladder,)

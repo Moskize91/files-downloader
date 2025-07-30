@@ -10,8 +10,8 @@ from typing import Callable
 from threading import Thread
 
 from tests.start_flask import PORT
-from files_downloader.common import Retry, HTTPOptions
-from files_downloader.file import (
+from downloaderx.common import Retry, HTTPOptions
+from downloaderx.file import (
   FileDownloader,
   InterruptionError,
   CanRetryError,

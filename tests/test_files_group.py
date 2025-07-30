@@ -10,10 +10,10 @@ from threading import Thread, Lock
 from parameterized import parameterized
 
 from tests.start_flask import PORT
-from files_downloader.type import Task, RetryError
-from files_downloader.common import Retry
-from files_downloader.files_group import FilesGroup, FileDownloadError
-from files_downloader.invoker import download
+from downloaderx.type import Task, RetryError
+from downloaderx.common import Retry
+from downloaderx.files_group import FilesGroup, FileDownloadError
+from downloaderx.invoker import download
 
 _TEMP_PATH = Path(__file__).parent / "temp" / "files_group"
 

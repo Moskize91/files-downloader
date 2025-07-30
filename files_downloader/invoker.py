@@ -97,7 +97,7 @@ class _Invoker:
       while True:
         while True:
           self._passage.build(build_executor)
-          if found_error:
+          if found_error is not None:
             if self._on_task_failed and isinstance(found_error, TaskError):
               self._on_task_failed(found_error)
             else:

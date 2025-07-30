@@ -74,7 +74,7 @@ def get_image(file_name: str):
     return "Image not found", 404
 
 @app.errorhandler(500)
-def handle_500_error(e):
+def handle_500_error(_):
   return traceback.format_exc(), 500
 
 def _parse_range_header(range_header: str, file_size: int):

@@ -140,7 +140,7 @@ class RangeDownloader:
           is_canceled_by=True,
         )
       try:
-        response = self._create_download_segment_response(chunk_path, segment)
+        response = self._create_download_segment_response(segment)
       except RangeNotSupportedError as error:
         if not error.is_canceled_by:
           support_range_context.update_value(False)
@@ -156,7 +156,7 @@ class RangeDownloader:
       if size >= bytes:
         file.truncate(size - bytes)
 
-  def _create_download_segment_response(self, chunk_path: Path, segment: Segment):
+  def _create_download_segment_response(self, segment: Segment):
     download_start = segment.offset + segment.completed_length
     download_end = segment.offset + segment.length - 1
     download_length = download_end - download_start + 1

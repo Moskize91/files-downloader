@@ -14,6 +14,9 @@ disable=
   fixme,
   no-else-return,
   broad-exception-caught,
+  protected-access,
+  raise-missing-from,
+  global-statement,
 
 [FORMAT]
 # Maximum number of characters on a single line.

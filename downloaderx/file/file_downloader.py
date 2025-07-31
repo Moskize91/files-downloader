@@ -7,6 +7,7 @@ from typing import Callable
 from threading import Lock
 
 from ..common import is_exception_can_retry, CAN_RETRY_STATUS_CODES, HTTPOptions
+from ..statistics import Statistics, StatisticsHub
 from .common import chunk_name
 from .errors import CanRetryError, RangeNotSupportedError
 from .segment import Segment
@@ -25,6 +26,7 @@ class FileDownloader:
         self,
         file_path: Path,
         http_options: HTTPOptions,
+        statistics_hub: StatisticsHub,
         min_segment_length: int,
         once_fetch_size: int,
         excepted_etag: str | None = None,
@@ -34,6 +36,7 @@ class FileDownloader:
 
     self._file_path: Path = file_path
     self._http_options: HTTPOptions = http_options
+    self._statistics_hub: StatisticsHub = statistics_hub
     self._min_segment_length: int = min_segment_length
     self._once_fetch_size: int = once_fetch_size
 
@@ -47,6 +50,7 @@ class FileDownloader:
       self._range_downloader = RangeDownloader(
         file_path=file_path,
         http_options=http_options,
+        statistics_hub=statistics_hub,
         min_segment_length=min_segment_length,
         once_fetch_size=once_fetch_size,
         excepted_etag=excepted_etag,
@@ -97,6 +101,7 @@ class FileDownloader:
       segment.dispose()
 
   def _download_file(self, file_path: Path) -> None:
+    statistics: Statistics | None = None
     try:
       resp = requests.Session().get(
         stream=True,
@@ -109,6 +114,11 @@ class FileDownloader:
         raise CanRetryError(f"HTTP {resp.status_code} - {resp.reason}")
       resp.raise_for_status()
 
+      content_length = resp.headers.get("Content-Length")
+      if content_length is not None:
+        content_length = int(content_length)
+        statistics = self._statistics_hub.create(content_length)
+
       with open(file_path, "wb") as file:
         try:
           for chunk in resp.iter_content(self._once_fetch_size):
@@ -118,7 +128,10 @@ class FileDownloader:
               with self._singleton_lock:
                 self._singleton_phase = _SingletonPhase.FAILED
               return
+
             file.write(chunk)
+            if statistics:
+              statistics.submit_bytes(len(chunk))
 
         except Exception as error:
           if is_exception_can_retry(error):
@@ -132,6 +145,8 @@ class FileDownloader:
     except Exception as error:
       with self._singleton_lock:
         self._singleton_phase = _SingletonPhase.FAILED
+      if statistics:
+        statistics.cancel()
       raise error
 
   def try_complete(self) -> Path | None:
@@ -193,6 +208,7 @@ class FileDownloader:
     range_downloader = self._range_downloader
     if self._did_cancel_range and range_downloader is not None:
       range_downloader.serial.dispose()
+      range_downloader.statistics.cancel()
       range_downloader = None
       self._range_downloader = None
 

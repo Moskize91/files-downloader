@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from .file import FileDownloader, CanRetryError, InterruptionError
 from .type import Task, TaskError, RetryError, TooManyRetriesError, FileDownloadError
+from .statistics import StatisticsHub
 from .common import HTTPOptions, Retry
 from .utils import list_safe_remove
 
@@ -46,6 +47,7 @@ class FilesGroup:
     self._on_task_failed_with_retry_error: Callable[[RetryError], None] = on_task_failed_with_retry_error or (lambda _: None)
 
     self._lock: Lock = Lock()
+    self._statistics_hub: StatisticsHub = StatisticsHub()
     self._did_call_dispose: bool = False
     self._failure_error: TaskError | None = None
     self._failure_ladder: tuple[int, ...] = tuple(failure_ladder)
@@ -202,6 +204,7 @@ class FilesGroup:
       downloader = FileDownloader(
         file_path=task_file_path,
         http_options=http_options,
+        statistics_hub=self._statistics_hub,
         min_segment_length=self._min_segment_length,
         once_fetch_size=self._once_fetch_size,
       )

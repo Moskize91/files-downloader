@@ -10,6 +10,7 @@ from typing import Callable
 from threading import Thread
 
 from tests.start_flask import PORT
+from downloaderx.statistics import StatisticsHub
 from downloaderx.common import Retry, HTTPOptions
 from downloaderx.file import (
   FileDownloader,
@@ -230,6 +231,7 @@ class TestFileDownloader(unittest.TestCase):
   def _create_file(self, path: str, download_file: Path) -> FileDownloader:
     return FileDownloader(
       file_path=download_file,
+      statistics_hub=StatisticsHub(),
       min_segment_length=1024,
       once_fetch_size=2048,
       http_options=HTTPOptions(

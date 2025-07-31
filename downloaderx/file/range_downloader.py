@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Mapping
 
 from ..common import is_exception_can_retry, CAN_RETRY_STATUS_CODES, Retry, HTTPOptions
+from ..statistics import Statistics, StatisticsHub
 from .segment import Serial, Segment, SegmentDescription
 from .value_signal import ValueSignal
 from .common import chunk_name, DOWNLOADING_SUFFIX
@@ -18,6 +19,7 @@ class RangeDownloader:
         self,
         file_path: Path,
         http_options: HTTPOptions,
+        statistics_hub: StatisticsHub,
         min_segment_length: int,
         once_fetch_size: int,
         excepted_etag: str | None = None,
@@ -35,11 +37,21 @@ class RangeDownloader:
     if not range_useable:
       raise RangeNotSupportedError("Server does not support Range requests")
 
-    self._serial: Serial = self._create_serial(
+    descriptions = self._create_segment_descriptions(
       content_length=content_length,
       etag=etag,
       excepted_etag=excepted_etag,
     )
+    self._statistics: Statistics = statistics_hub.create(content_length)
+    self._serial: Serial = Serial(
+      length=content_length,
+      min_segment_length=self._min_segment_length,
+      descriptions=descriptions,
+    )
+    if descriptions:
+      self._statistics.submit_bytes(
+        submitted_bytes=sum(d.completed_length for d in descriptions),
+      )
 
   def _fetch_meta(self, retry: Retry):
     resp = retry.request(
@@ -58,7 +70,7 @@ class RangeDownloader:
       content_length = int(content_length)
     return content_length, etag, range_useable
 
-  def _create_serial(self, content_length: int, etag: str | None, excepted_etag: str | None) -> Serial:
+  def _create_segment_descriptions(self, content_length: int, etag: str | None, excepted_etag: str | None) -> list[SegmentDescription] | None:
     descriptions: list[SegmentDescription] | None = None
     offsets: list[int] | None = None
 
@@ -93,11 +105,7 @@ class RangeDownloader:
           completed_length=chunk_size,
         ))
 
-    return Serial(
-      length=content_length,
-      min_segment_length=self._min_segment_length,
-      descriptions=descriptions,
-    )
+    return descriptions
 
   def _search_offsets(self, length: int):
     wanna_tail = f"{self._file_path.suffix[1:]}{DOWNLOADING_SUFFIX}"
@@ -119,6 +127,10 @@ class RangeDownloader:
               pass
             if 0 < offset < length:
               yield offset
+
+  @property
+  def statistics(self) -> Statistics:
+    return self._statistics
 
   @property
   def serial(self) -> Serial:
@@ -219,7 +231,9 @@ class RangeDownloader:
             file.write(chunk)
           else:
             file.write(chunk[:writable_size])
+
           segment.submit(writable_size)
+          self._statistics.submit_bytes(writable_size)
 
       except Exception as error:
         if is_exception_can_retry(error):

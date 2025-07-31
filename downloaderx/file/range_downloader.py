@@ -80,10 +80,17 @@ class RangeDownloader:
           length = content_length - offset
         else:
           length = offsets[i + 1] - offset
+
+        chunk_path = self._file_path.parent / chunk_name(self._file_path, offset)
+        chunk_size = chunk_path.stat().st_size
+        trim_size = chunk_size - length
+        if trim_size > 0:
+          self._trim_file_tail(chunk_path, trim_size)
+
         descriptions.append(SegmentDescription(
           offset=offset,
           length=length,
-          completed_length=0,
+          completed_length=chunk_size,
         ))
 
     return Serial(

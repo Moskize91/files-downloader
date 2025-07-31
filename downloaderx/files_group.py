@@ -184,8 +184,12 @@ class FilesGroup:
 
   def _create_file_node(self, task: Task) -> _FileNode | None:
     task_file_path = Path(task.file)
-    if self._skip_existing and task_file_path.exists():
-      return None
+    if task_file_path.exists():
+      if self._skip_existing:
+        return None
+      if not task_file_path.is_file():
+        raise ValueError(f"Task file path {task_file_path} exists but is not a file.")
+      task_file_path.unlink()
 
     http_options = HTTPOptions(
       url=task.url,

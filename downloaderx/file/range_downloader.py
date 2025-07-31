@@ -35,10 +35,15 @@ class RangeDownloader:
     if not range_useable:
       raise RangeNotSupportedError("Server does not support Range requests")
 
-    self._serial: Serial = self._create_serial(
+    descriptions = self._create_segment_descriptions(
       content_length=content_length,
       etag=etag,
       excepted_etag=excepted_etag,
+    )
+    self._serial: Serial = Serial(
+      length=content_length,
+      min_segment_length=self._min_segment_length,
+      descriptions=descriptions,
     )
 
   def _fetch_meta(self, retry: Retry):
@@ -58,7 +63,7 @@ class RangeDownloader:
       content_length = int(content_length)
     return content_length, etag, range_useable
 
-  def _create_serial(self, content_length: int, etag: str | None, excepted_etag: str | None) -> Serial:
+  def _create_segment_descriptions(self, content_length: int, etag: str | None, excepted_etag: str | None) -> list[SegmentDescription] | None:
     descriptions: list[SegmentDescription] | None = None
     offsets: list[int] | None = None
 
@@ -93,11 +98,7 @@ class RangeDownloader:
           completed_length=chunk_size,
         ))
 
-    return Serial(
-      length=content_length,
-      min_segment_length=self._min_segment_length,
-      descriptions=descriptions,
-    )
+    return descriptions
 
   def _search_offsets(self, length: int):
     wanna_tail = f"{self._file_path.suffix[1:]}{DOWNLOADING_SUFFIX}"

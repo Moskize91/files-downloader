@@ -20,6 +20,7 @@ def download(
       retry_sleep: float = 0.0,
       override_existing_files: bool = False,
       on_task_completed: Callable[[Task], None] | None = None,
+      on_task_skipped: Callable[[Task], None] | None = None,
       on_task_failed: Callable[[TaskError], None] | None = None,
       on_task_failed_with_retry_error: Callable[[RetryError], None] | None = None,
     ) -> None:
@@ -41,6 +42,7 @@ def download(
     skip_existing=not override_existing_files,
     timeout=timeout,
     on_task_completed=on_task_completed,
+    on_task_skipped=on_task_skipped,
     on_task_failed=on_task_failed,
     on_task_failed_with_retry_error=on_task_failed_with_retry_error,
     retry=Retry(

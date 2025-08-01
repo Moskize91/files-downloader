@@ -225,7 +225,7 @@ class TestFilesGroup(unittest.TestCase):
     return FilesGroup(
       tasks_iter = (
         Task(
-          url=f"http://localhost:{PORT}{path}",
+          url=lambda p=path: f"http://localhost:{PORT}{p}",
           file=file,
           headers=None,
           cookies=None,

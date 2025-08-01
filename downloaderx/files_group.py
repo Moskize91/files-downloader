@@ -194,6 +194,9 @@ class FilesGroup:
         raise ValueError(f"Task file path {task_file_path} exists but is not a file.")
       task_file_path.unlink()
 
+    if callable(task.url):
+      task.url = task.url()
+
     http_options = HTTPOptions(
       url=task.url,
       timeout=self._timeout,

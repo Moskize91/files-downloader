@@ -1,14 +1,19 @@
 from dataclasses import dataclass
-from typing import Mapping, MutableMapping
+from typing import Callable, Mapping, MutableMapping
 from os import PathLike
 
 
 @dataclass
 class Task:
-  url: str
+  url: str | Callable[[], str]
   file: str | PathLike
   headers: Mapping[str, str | bytes | None] | None = None
   cookies: MutableMapping[str, str] | None = None
+
+  def get_url(self) -> str:
+    if callable(self.url):
+      self.url = self.url()
+    return self.url
 
 class TaskError(Exception):
   def __init__(self, task: Task, case_error: Exception) -> None:

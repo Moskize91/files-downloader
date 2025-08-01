@@ -239,6 +239,7 @@ class TestFilesGroup(unittest.TestCase):
       skip_existing=False,
       timeout=1.5,
       on_task_completed=on_task_completed,
+      on_task_skipped=None,
       on_task_failed=None,
       on_task_failed_with_retry_error=on_task_failed_with_retry_error,
       retry=Retry(

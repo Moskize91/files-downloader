@@ -30,6 +30,7 @@ class FilesGroup:
         timeout: float,
         retry: Retry,
         on_task_completed: Callable[[Task], None] | None,
+        on_task_skipped: Callable[[Task], None] | None,
         on_task_failed: Callable[[TaskError], None] | None,
         on_task_failed_with_retry_error: Callable[[RetryError], None] | None,
       ) -> None:
@@ -42,6 +43,7 @@ class FilesGroup:
     self._timeout: float = timeout
     self._retry: Retry = retry
     self._on_task_completed: Callable[[Task], None] = on_task_completed or (lambda _: None)
+    self._on_task_skipped: Callable[[Task], None] = on_task_skipped or (lambda _: None)
     self._on_task_failed: Callable[[TaskError], None] | None = on_task_failed
     self._on_task_failed_with_retry_error: Callable[[RetryError], None] = on_task_failed_with_retry_error or (lambda _: None)
 
@@ -186,6 +188,7 @@ class FilesGroup:
     task_file_path = Path(task.file)
     if task_file_path.exists():
       if self._skip_existing:
+        self._on_task_skipped(task)
         return None
       if not task_file_path.is_file():
         raise ValueError(f"Task file path {task_file_path} exists but is not a file.")

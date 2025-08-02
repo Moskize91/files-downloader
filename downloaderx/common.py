@@ -52,12 +52,11 @@ class Retry:
           return last_response
         if last_response.status_code not in CAN_RETRY_STATUS_CODES:
           break
-      except (
-        exceptions.ConnectionError,
-        exceptions.Timeout,
-        exceptions.ProxyError,
-      ) as error:
-        last_error = error
+      except Exception as error:
+        if is_exception_can_retry(error):
+          last_error = error
+        else:
+          raise error
 
       if i < self._retry_times:
         sleep(self._retry_sleep)

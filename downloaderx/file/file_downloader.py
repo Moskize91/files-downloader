@@ -31,7 +31,6 @@ class FileDownloader:
         once_fetch_size: int,
         excepted_etag: str | None = None,
     ) -> None:
-
         assert not file_path.exists(), "file already exists"
 
         self._file_path: Path = file_path
@@ -74,10 +73,7 @@ class FileDownloader:
         download_file = self._file_path.parent / chunk_name(self._file_path, 0)
         with self._singleton_lock:
             phase = self._singleton_phase
-            if (
-                phase == _SingletonPhase.POPPED_TASK
-                or phase == _SingletonPhase.COMPLETED
-            ):
+            if phase == _SingletonPhase.POPPED_TASK or phase == _SingletonPhase.COMPLETED:
                 return None
             if phase == _SingletonPhase.FAILED:
                 download_file.unlink(missing_ok=True)
@@ -85,9 +81,7 @@ class FileDownloader:
 
         return lambda: self._download_file(download_file)
 
-    def _download_segment(
-        self, range_downloader: RangeDownloader, segment: Segment
-    ) -> None:
+    def _download_segment(self, range_downloader: RangeDownloader, segment: Segment) -> None:
         try:
             if not self._did_dispose:
                 range_downloader.download_segment(segment)
@@ -116,21 +110,14 @@ class FileDownloader:
             resp.raise_for_status()
 
             with open(file_path, "wb") as file:
-                try:
-                    for chunk in resp.iter_content(self._once_fetch_size):
-                        if len(chunk) == 0:
-                            break
-                        if self._did_dispose:
-                            with self._singleton_lock:
-                                self._singleton_phase = _SingletonPhase.FAILED
-                            return
-                        file.write(chunk)
-
-                except Exception as error:
-                    if is_exception_can_retry(error):
-                        raise CanRetryError("Download file failed") from error
-                    else:
-                        raise error
+                for chunk in resp.iter_content(self._once_fetch_size):
+                    if len(chunk) == 0:
+                        break
+                    if self._did_dispose:
+                        with self._singleton_lock:
+                            self._singleton_phase = _SingletonPhase.FAILED
+                        return
+                    file.write(chunk)
 
             with self._singleton_lock:
                 self._singleton_phase = _SingletonPhase.COMPLETED
@@ -138,6 +125,8 @@ class FileDownloader:
         except Exception as error:
             with self._singleton_lock:
                 self._singleton_phase = _SingletonPhase.FAILED
+            if is_exception_can_retry(error):
+                raise CanRetryError("Download file failed") from error
             raise error
 
     def try_complete(self) -> Path | None:
@@ -150,9 +139,7 @@ class FileDownloader:
             if not serial.is_completed:
                 return None
             for description in serial.snapshot():
-                chunk_path = self._file_path.parent / chunk_name(
-                    self._file_path, description.offset
-                )
+                chunk_path = self._file_path.parent / chunk_name(self._file_path, description.offset)
                 chunk_paths.append(chunk_path)
         else:
             with self._singleton_lock:

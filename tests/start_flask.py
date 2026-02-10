@@ -108,7 +108,7 @@ _STEP: int = 0
 
 
 def _should_timeout() -> bool:
-    global _STEP
+    global _STEP  # pylint: disable=global-statement
     with _LOCK:
         _STEP += 1
         if _STEP % 2 == 0:

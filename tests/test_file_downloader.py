@@ -43,6 +43,7 @@ class TestFileDownloader(unittest.TestCase):
             path="/images/mirai.jpg?reject_first=true",
             download_file=download_file,
         )
+        # pylint: disable=protected-access
         self.assertIsNone(file._range_downloader)
         run_download_task = file.pop_downloading_task()
         assert run_download_task is not None
@@ -72,6 +73,7 @@ class TestFileDownloader(unittest.TestCase):
             path="/images/mirai.jpg?range=true",
             download_file=download_file,
         )
+        # pylint: disable=protected-access
         self.assertIsNotNone(file._range_downloader)
 
         segments_count = 7
@@ -79,9 +81,7 @@ class TestFileDownloader(unittest.TestCase):
 
         for i in range(segments_count):
             run_download_task = file.pop_downloading_task()
-            assert run_download_task is not None, (
-                f"Failed to pop task {i + 1}/{segments_count}"
-            )
+            assert run_download_task is not None, f"Failed to pop task {i + 1}/{segments_count}"
             tasks.append(run_download_task)
 
         for i in _shuffle_indexes(segments_count, seed=4399):
@@ -102,6 +102,7 @@ class TestFileDownloader(unittest.TestCase):
             path="/images/mirai.jpg",
             download_file=download_file,
         )
+        # pylint: disable=protected-access
         self.assertIsNotNone(file._range_downloader)
 
         segments_count = 5
@@ -126,9 +127,7 @@ class TestFileDownloader(unittest.TestCase):
             thread.join()
 
         for error in errors[1:]:  # 第一个可能直接 200 成功，测试用例中应该排除随机性
-            assert isinstance(error, RangeDownloadFailedError), (
-                "Expected RangeNotSupportedError"
-            )
+            assert isinstance(error, RangeDownloadFailedError), "Expected RangeNotSupportedError"
 
         download_task = file.pop_downloading_task()
         assert download_task is not None, "Failed to pop final task"
@@ -149,6 +148,7 @@ class TestFileDownloader(unittest.TestCase):
             path="/images/mirai.jpg?range=true&break_random=true",
             download_file=download_file,
         )
+        # pylint: disable=protected-access
         self.assertIsNotNone(file._range_downloader)
 
         segments_count = 4
@@ -156,9 +156,7 @@ class TestFileDownloader(unittest.TestCase):
 
         for i in range(segments_count):
             run_download_task = file.pop_downloading_task()
-            assert run_download_task is not None, (
-                f"Failed to pop task {i + 1}/{segments_count}"
-            )
+            assert run_download_task is not None, f"Failed to pop task {i + 1}/{segments_count}"
             tasks.append(run_download_task)
 
         tasks_queue = [tasks[i] for i in _shuffle_indexes(segments_count, seed=12125)]
@@ -187,6 +185,7 @@ class TestFileDownloader(unittest.TestCase):
             path="/images/mirai.jpg?range=true",
             download_file=download_file,
         )
+        # pylint: disable=protected-access
         self.assertIsNotNone(file._range_downloader)
 
         group_size = 3
@@ -310,7 +309,7 @@ class TestContentLengthFallback(unittest.TestCase):
 
         # 当Content-Length缺失时，_range_downloader应该为None（降级到非range模式）
         # 因为RangeDownloader在初始化时会抛出RangeDownloadFailedError，被FileDownloader捕获并忽略
-        self.assertIsNone(file._range_downloader)
+        self.assertIsNone(file._range_downloader)  # pylint: disable=protected-access
 
         # 文件应该能正常下载完成（使用非range模式）
         run_download_task = file.pop_downloading_task()
@@ -335,9 +334,7 @@ class TestContentLengthFallback(unittest.TestCase):
         # 完成下载
         final_path = file.try_complete()
         self.assertEqual(final_path, download_file)
-        self.assertTrue(
-            download_file.exists(), f"最终下载文件应该存在: {download_file}"
-        )
+        self.assertTrue(download_file.exists(), f"最终下载文件应该存在: {download_file}")
         self.assertEqual(
             _sha256(download_file),
             _sha256(raw_file),

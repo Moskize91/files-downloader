@@ -1,2 +1,2 @@
-from .type import *
 from .invoker import download
+from .type import *

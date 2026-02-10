@@ -1,10 +1,17 @@
 {
-  "editor.tabSize": 2,
-  "editor.insertSpaces": true,
   "files.trimTrailingWhitespace": true,
-  "pylint.args": [
-    "--generate-members"
-  ],
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  "python.terminal.activateEnvironment": true,
+  "python.terminal.activateEnvInCurrentTerminal": true,
+  "[python]": {
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll": "explicit",
+      "source.organizeImports": "explicit"
+    },
+    "editor.defaultFormatter": "charliermarsh.ruff"
+  },
+  "ruff.enable": true,
   "files.associations": {
     "*.jinja": "jinja-xml",
     "*.xml.jinja": "jinja-xml",
@@ -19,6 +26,7 @@
     "editor.wordWrap": "on"
   },
   "cSpell.words": [
+    "addopts",
     "analyse",
     "analyser",
     "analysers",
@@ -36,6 +44,7 @@
     "epub",
     "fitz",
     "frombytes",
+    "isort",
     "jsonify",
     "kwoa",
     "langchain",
@@ -48,18 +57,20 @@
     "Onnx",
     "OOMOL",
     "pixmap",
+    "pycodestyle",
+    "pyflakes",
+    "pytest",
+    "pyupgrade",
     "rects",
     "retrato",
     "rootfile",
     "rootfiles",
     "SSLEOF",
+    "testpaths",
     "tiktoken",
     "tobytes",
     "updation",
     "venv",
     "zinfo"
-  ],
-  "python-envs.defaultEnvManager": "ms-python.python:conda",
-  "python-envs.defaultPackageManager": "ms-python.python:conda",
-  "python-envs.pythonProjects": []
+  ]
 }

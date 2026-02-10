@@ -12,7 +12,7 @@ if [ -d ".venv" ]; then
   rm -rf .venv
 fi
 
-conda create --prefix ./.venv python=3.10.16 -y
+conda create --prefix ./.venv python=3.11 -y
 
 eval "$(conda shell.bash hook)"
 conda activate ./.venv

@@ -35,7 +35,6 @@ class FilesGroup:
         on_task_failed: Callable[[TaskError], None] | None,
         on_task_failed_with_retry_error: Callable[[RetryError], None] | None,
     ) -> None:
-
         self._tasks_iter: Iterator[Task] = tasks_iter
         self._window_width: int = window_width
         self._min_segment_length: int = min_segment_length

@@ -21,7 +21,6 @@ class Segment:
         completed_length: int,
         send_back: Callable[["Segment"], None],
     ) -> None:
-
         self._offset: int = offset
         self._length: int = length
         self._locked_length: int = completed_length
@@ -91,7 +90,6 @@ class Serial:
         min_segment_length: int,
         descriptions: Iterable[SegmentDescription] | None = None,
     ) -> None:
-
         assert length > 0, "length must be greater than 0"
         assert min_segment_length > 1, "min_segment_length must be greater than 1"
         self._length: int = length

@@ -1,6 +1,6 @@
 import glob
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Mapping
 
 import requests
 
@@ -23,7 +23,6 @@ class RangeDownloader:
         once_fetch_size: int,
         excepted_etag: str | None = None,
     ) -> None:
-
         self._file_path: Path = file_path
         self._http_options: HTTPOptions = http_options
         self._min_segment_length: int = min_segment_length
@@ -32,9 +31,7 @@ class RangeDownloader:
 
         content_length, etag, range_useable = self._fetch_meta(http_options.retry)
         if content_length is None:
-            raise RangeDownloadFailedError(
-                "Content-Length header is missing in response"
-            )
+            raise RangeDownloadFailedError("Content-Length header is missing in response")
         if not range_useable:
             raise RangeDownloadFailedError("Server does not support Range requests")
 
@@ -76,9 +73,7 @@ class RangeDownloader:
             for offset in self._search_offsets(content_length):
                 clean_path(self._file_path.parent / chunk_name(self._file_path, offset))
         elif self._file_path.parent.exists():
-            assert self._file_path.parent.is_dir(), (
-                f"{self._file_path.parent} is not a directory"
-            )
+            assert self._file_path.parent.is_dir(), f"{self._file_path.parent} is not a directory"
             offsets = list(self._search_offsets(content_length))
             offsets.sort()
         else:
@@ -93,9 +88,7 @@ class RangeDownloader:
                 else:
                     length = offsets[i + 1] - offset
 
-                chunk_path = self._file_path.parent / chunk_name(
-                    self._file_path, offset
-                )
+                chunk_path = self._file_path.parent / chunk_name(self._file_path, offset)
                 chunk_size = chunk_path.stat().st_size
                 trim_size = chunk_size - length
                 if trim_size > 0:
@@ -137,9 +130,7 @@ class RangeDownloader:
         return self._serial
 
     def download_segment(self, segment: Segment) -> None:
-        chunk_path = self._file_path.parent / chunk_name(
-            self._file_path, segment.offset
-        )
+        chunk_path = self._file_path.parent / chunk_name(self._file_path, segment.offset)
         chunk_size = 0
         if chunk_path.exists():
             chunk_size = chunk_path.stat().st_size
@@ -204,39 +195,24 @@ class RangeDownloader:
             content_range = response.headers.get("Content-Range")
             content_length = response.headers.get("Content-Length")
 
-            if (
-                content_range
-                != f"bytes {download_start}-{download_end}/{self._serial.length}"
-            ):
-                raise RangeDownloadFailedError(
-                    f"Unexpected Content-Range: {content_range}"
-                )
+            if content_range != f"bytes {download_start}-{download_end}/{self._serial.length}":
+                raise RangeDownloadFailedError(f"Unexpected Content-Range: {content_range}")
             if content_length != f"{download_length}":
-                raise RangeDownloadFailedError(
-                    f"Unexpected Content-Length: {content_length}"
-                )
+                raise RangeDownloadFailedError(f"Unexpected Content-Length: {content_length}")
 
         elif response.status_code == 200:
             if download_start != 0:
-                raise RangeDownloadFailedError(
-                    "Server returns 200 OK but Range request was made"
-                )
+                raise RangeDownloadFailedError("Server returns 200 OK but Range request was made")
             content_length = response.headers.get("Content-Length")
             if content_length != str(download_length):
-                raise RangeDownloadFailedError(
-                    f"Server returns 200 OK but Unexpected Content-Length: {content_length}"
-                )
+                raise RangeDownloadFailedError(f"Server returns 200 OK but Unexpected Content-Length: {content_length}")
 
         else:
-            raise RangeDownloadFailedError(
-                f"Server rejects Range request with status code {response.status_code}"
-            )
+            raise RangeDownloadFailedError(f"Server rejects Range request with status code {response.status_code}")
 
         return response
 
-    def _download_segment_into_file(
-        self, response: requests.Response, chunk_path: Path, segment: Segment
-    ) -> None:
+    def _download_segment_into_file(self, response: requests.Response, chunk_path: Path, segment: Segment) -> None:
         with open(chunk_path, "ab") as file:
             try:
                 for chunk in response.iter_content(self._once_fetch_size):
@@ -252,9 +228,7 @@ class RangeDownloader:
 
             except Exception as error:
                 if is_exception_can_retry(error):
-                    raise CanRetryError(
-                        "Download one segment of the file failed"
-                    ) from error
+                    raise CanRetryError("Download one segment of the file failed") from error
                 else:
                     raise error
 

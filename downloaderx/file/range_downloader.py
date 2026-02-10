@@ -217,7 +217,7 @@ class RangeDownloader:
             try:
                 for chunk in response.iter_content(self._once_fetch_size):
                     chunk_size = len(chunk)
-                    writable_size = segment.lock(chunk_size)
+                    writable_size = segment.lock_next_length(chunk_size)
                     if writable_size == 0:
                         break
                     if writable_size == chunk_size:

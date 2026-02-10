@@ -1,7 +1,7 @@
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event, Lock
-from typing import Callable, Iterable, Iterator
 
 from .common import HTTPOptions, Retry
 from .file import CanRetryError, FileDownloader, InterruptionError
@@ -42,15 +42,11 @@ class FilesGroup:
         self._skip_existing: bool = skip_existing
         self._timeout: float = timeout
         self._retry: Retry = retry
-        self._on_task_completed: Callable[[Task], None] = on_task_completed or (
-            lambda _: None
-        )
-        self._on_task_skipped: Callable[[Task], None] = on_task_skipped or (
-            lambda _: None
-        )
+        self._on_task_completed: Callable[[Task], None] = on_task_completed or (lambda _: None)
+        self._on_task_skipped: Callable[[Task], None] = on_task_skipped or (lambda _: None)
         self._on_task_failed: Callable[[TaskError], None] | None = on_task_failed
-        self._on_task_failed_with_retry_error: Callable[[RetryError], None] = (
-            on_task_failed_with_retry_error or (lambda _: None)
+        self._on_task_failed_with_retry_error: Callable[[RetryError], None] = on_task_failed_with_retry_error or (
+            lambda _: None
         )
 
         self._lock: Lock = Lock()
@@ -62,9 +58,7 @@ class FilesGroup:
 
         assert len(self._failure_ladder) > 0, "failure ladder must not be empty"
         for ladder_failure_limit in self._failure_ladder:
-            assert ladder_failure_limit > 0, (
-                "ladder failure limit must be greater than zero"
-            )
+            assert ladder_failure_limit > 0, "ladder failure limit must be greater than zero"
 
         self._maybe_create_new_executors.set()
 
@@ -109,9 +103,7 @@ class FilesGroup:
                 return None
 
         # running in background thread
-        def run_downloader_executor(
-            node: _FileNode, executor: Callable[[], None]
-        ) -> None:
+        def run_downloader_executor(node: _FileNode, executor: Callable[[], None]) -> None:
             try:
                 executor()
             except InterruptionError:
@@ -121,9 +113,7 @@ class FilesGroup:
                 with self._lock:
                     success = self._increase_failure_count(node)
                     if success:
-                        self._on_task_failed_with_retry_error(
-                            RetryError(node.task, error)
-                        )
+                        self._on_task_failed_with_retry_error(RetryError(node.task, error))
                         self._maybe_create_new_executors.set()
                     else:
                         self._remove_node(node)
@@ -203,9 +193,7 @@ class FilesGroup:
                 self._on_task_skipped(task)
                 return None
             if not task_file_path.is_file():
-                raise ValueError(
-                    f"Task file path {task_file_path} exists but is not a file."
-                )
+                raise ValueError(f"Task file path {task_file_path} exists but is not a file.")
             task_file_path.unlink()
 
         if callable(task.url):
@@ -226,7 +214,7 @@ class FilesGroup:
                 once_fetch_size=self._once_fetch_size,
             )
         except Exception as error:
-            raise FileDownloadError(task, error)
+            raise FileDownloadError(task, error) from error
 
         return _FileNode(
             task=task,

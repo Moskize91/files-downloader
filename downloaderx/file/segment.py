@@ -30,12 +30,20 @@ class Segment:
         self._interrupted: bool = False
 
     @property
+    def lock(self) -> Lock:
+        return self._lock
+
+    @property
     def offset(self) -> int:
         return self._offset
 
     @property
     def length(self) -> int:
         return self._length
+
+    @property
+    def locked_length(self) -> int:
+        return self._locked_length
 
     @property
     def completed_length(self) -> int:
@@ -46,7 +54,7 @@ class Segment:
         with self._lock:
             return self._completed_length >= self._length
 
-    def lock(self, delta_length: int) -> int:
+    def lock_next_length(self, delta_length: int) -> int:
         with self._lock:
             if self._interrupted:
                 raise InterruptionError()
@@ -138,13 +146,9 @@ class Serial:
                 )
                 offset += description.length
                 if offset > length:
-                    raise ValueError(
-                        f"segment's tail {offset} exceeds total length {length}"
-                    )
+                    raise ValueError(f"segment's tail {offset} exceeds total length {length}")
             if offset != length:
-                raise ValueError(
-                    f"end of segments {offset} does not match total length {length}"
-                )
+                raise ValueError(f"end of segments {offset} does not match total length {length}")
 
     @property
     def length(self) -> int:
@@ -202,7 +206,7 @@ class Serial:
                     continue
                 taken_index: int = 0
                 segment = node.segment
-                remain_length = segment.length - segment._locked_length
+                remain_length = segment.length - segment.locked_length
 
                 if node.taken:
                     taken_index = 1
@@ -218,7 +222,7 @@ class Serial:
                     node.taken = True
                     return segment
 
-                with segment._lock:
+                with segment.lock:
                     cutted_segment = self._try_to_cut_segment(segment)
                     if cutted_segment:
                         return cutted_segment
@@ -227,7 +231,7 @@ class Serial:
 
     # all locks will be locked by the caller
     def _try_to_cut_segment(self, segment: Segment) -> Segment | None:
-        remain_length = segment.length - segment._locked_length
+        remain_length = segment.length - segment.locked_length
         cutted_length = remain_length // 2
 
         if cutted_length < self._min_segment_length:
@@ -236,7 +240,7 @@ class Serial:
 
         segment._length -= cutted_length
         cutted_segment = Segment(
-            offset=segment._offset + segment._length,
+            offset=segment.offset + segment.length,
             length=cutted_length,
             completed_length=0,
             send_back=self._receive_segment,

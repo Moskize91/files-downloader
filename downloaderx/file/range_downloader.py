@@ -107,23 +107,25 @@ class RangeDownloader:
     def _search_offsets(self, length: int):
         wanna_tail = f"{self._file_path.suffix[1:]}{DOWNLOADING_SUFFIX}"
         file_stem = glob.escape(self._file_path.stem)  # maybe include "*" signs
+        first_chunk_name = chunk_name(self._file_path, 0)
 
         for matched_path in self._file_path.parent.glob(f"{file_stem}*"):
-            matched_tail = matched_path.name[len(self._file_path.stem) :]
-            if matched_tail == DOWNLOADING_SUFFIX:
+            if matched_path.name == first_chunk_name:
                 yield 0
-            else:
-                parts = matched_tail.split(".", maxsplit=2)
-                if len(parts) == 3 and parts[0] == "":
-                    _, str_offset, tail = parts
-                    if tail == wanna_tail:
-                        offset: int = -1
-                        try:
-                            offset = int(str_offset)
-                        except ValueError:
-                            pass
-                        if 0 < offset < length:
-                            yield offset
+                continue
+
+            matched_tail = matched_path.name[len(self._file_path.stem) :]
+            parts = matched_tail.split(".", maxsplit=2)
+            if len(parts) == 3 and parts[0] == "":
+                _, str_offset, tail = parts
+                if tail == wanna_tail:
+                    offset: int = -1
+                    try:
+                        offset = int(str_offset)
+                    except ValueError:
+                        pass
+                    if 0 < offset < length:
+                        yield offset
 
     @property
     def serial(self) -> Serial:

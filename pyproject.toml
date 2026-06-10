@@ -1,6 +1,6 @@
 [project]
 name = "downloaderx"
-version = "0.1.9"
+version = "0.1.10"
 description = "Multi-threaded, resumable file downloader for Python"
 authors = [
     {name = "Tao Zeyu", email = "i@taozeyu.com"}

@@ -5,6 +5,7 @@ import subprocess
 import time
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from threading import Thread
 from typing import Callable
 
@@ -15,6 +16,8 @@ from downloaderx.file import (
     InterruptionError,
     RangeDownloadFailedError,
 )
+from downloaderx.file.common import chunk_name
+from downloaderx.file.range_downloader import RangeDownloader
 from tests.start_flask import PORT
 
 _TEMP_PATH = Path(__file__).parent / "temp" / "file_downloader"
@@ -339,3 +342,38 @@ class TestContentLengthFallback(unittest.TestCase):
             _sha256(download_file),
             _sha256(raw_file),
         )
+
+
+class TestRangeDownloaderResumeOffsets(unittest.TestCase):
+    def test_search_offsets_recovers_zero_chunk_for_regular_suffix(self):
+        offsets = self._search_offsets_for_existing_chunks(
+            file_name="mirai.jpg",
+            existing_offsets=[0, 1234],
+            content_length=10_000,
+        )
+
+        self.assertEqual(offsets, [0, 1234])
+
+    def test_search_offsets_recovers_zero_chunk_for_compressed_suffix(self):
+        offsets = self._search_offsets_for_existing_chunks(
+            file_name="latest-all-json.bz2",
+            existing_offsets=[0, 23_173_786_269, 46_347_572_538],
+            content_length=100_000_000_000,
+        )
+
+        self.assertEqual(offsets, [0, 23_173_786_269, 46_347_572_538])
+
+    def _search_offsets_for_existing_chunks(
+        self,
+        file_name: str,
+        existing_offsets: list[int],
+        content_length: int,
+    ) -> list[int]:
+        with TemporaryDirectory() as temp_dir:
+            file_path = Path(temp_dir) / file_name
+            for offset in existing_offsets:
+                (file_path.parent / chunk_name(file_path, offset)).write_bytes(b"x")
+
+            range_downloader = RangeDownloader.__new__(RangeDownloader)
+            range_downloader._file_path = file_path  # pylint: disable=protected-access
+            return sorted(range_downloader._search_offsets(content_length))  # pylint: disable=protected-access
